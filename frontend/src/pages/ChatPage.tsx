@@ -106,7 +106,8 @@ export default function ChatPage() {
                 borderRight: '1px solid var(--background2)', 
                 backgroundColor: 'var(--background1)',
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                padding: '0.5rem'
             }}>
                 <RoomList
                     selectedRoom={selectedRoom}
@@ -123,6 +124,7 @@ export default function ChatPage() {
                         <div is-="row" align-="between center" pad-="1" style={{ 
                             borderBottom: '1px solid var(--background2)', 
                             backgroundColor: 'var(--background1)',
+                            padding: '0.5rem 1rem',
                             minHeight: '3rem'
                         }}>
                             <div is-="column" gap-="0">
@@ -137,7 +139,8 @@ export default function ChatPage() {
                                     <span style={{
                                         fontSize: '0.7rem',
                                         color: connectionStatus === 'connected' ? 'var(--success)' : 'var(--warning)',
-                                        fontFamily: 'var(--font-mono)'
+                                        fontFamily: 'var(--font-mono)',
+                                        marginLeft: '0.5rem'
                                     }}>
                                         {connectionStatus === 'connected' ? '● 接続済み' : 
                                          connectionStatus === 'connecting' ? '○ 接続中...' : '○ 未接続'}
@@ -149,6 +152,16 @@ export default function ChatPage() {
                                         color: 'var(--foreground1)'
                                     }}>
                                         {selectedRoom.description}
+                                    </span>
+                                )}
+
+                                {selectedRoom.created_at && (
+                                    <span style={{ 
+                                        fontSize: '0.7rem', 
+                                        color: 'var(--foreground2)',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}>
+                                        Created at: {new Date(selectedRoom.created_at).toLocaleDateString()} {new Date(selectedRoom.created_at).toLocaleTimeString()}
                                     </span>
                                 )}
                             </div>

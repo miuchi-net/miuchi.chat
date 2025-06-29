@@ -103,7 +103,35 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
         </button>
       </div>
 
-      {/* ルーム作成フォーム */}
+      {/* ルーム一覧 */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem' }}>
+        {rooms.length === 0 ? (
+          <div is-="column" align-="center center" style={{ padding: '2rem' }}>
+            <span style={{ fontSize: '0.9rem', color: 'var(--foreground1)' }}>チャンネルがありません</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--foreground2)' }}>新しいチャンネルを作成してみましょう！</span>
+          </div>
+        ) : (
+          rooms.map(room => (
+            <div
+              key={room.id}
+              onClick={() => onRoomSelect(room)}
+              style={{
+                padding: '0.5rem 1rem',
+                cursor: 'pointer',
+                backgroundColor: selectedRoom?.id === room.id ? 'var(--background2)' : 'transparent',
+                borderRadius: '4px',
+                marginBottom: '0.25rem'
+              }}
+            >
+              <span style={{ fontWeight: 'bold', fontSize: '0.9rem', fontFamily: 'var(--font-mono)' }}>
+                #{room.name}
+              </span>
+            </div>
+          ))
+        )}
+        </div>
+
+        {/* ルーム作成フォーム */}
       {showCreateForm && (
         <div is-="column" gap-="1" pad-="1" style={{ borderBottom: '1px solid var(--background2)', backgroundColor: 'var(--background1)' }}>
           <input
@@ -148,33 +176,6 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
         </div>
       )}
 
-      {/* ルーム一覧 */}
-      <div is-="column" gap-="0" style={{ flex: 1, overflow: 'auto' }}>
-        {rooms.map(room => (
-          <button
-            key={room.id}
-            onClick={() => onRoomSelect(room)}
-            variant-={selectedRoom?.id === room.id ? 'primary' : 'ghost'}
-            style={{
-              justifyContent: 'flex-start',
-              padding: '0.5rem 1rem',
-              borderRadius: '0',
-              fontSize: '0.9rem',
-              fontFamily: 'var(--font-mono)',
-              textAlign: 'left'
-            }}
-          >
-            <div is-="column" gap-="0" align-="start">
-              <span># {room.name}</span>
-              {room.description && (
-                <span style={{ fontSize: '0.7rem', color: 'var(--foreground2)' }}>
-                  {room.description}
-                </span>
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
     </div>
   )
 }

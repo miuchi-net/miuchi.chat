@@ -17,7 +17,7 @@ export default function MessageInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const defaultPlaceholder = roomName 
-    ? `#${roomName}にメッセージを送信...`
+    ? `#${roomName} にメッセージを送信...`
     : 'メッセージを入力...'
 
   useEffect(() => {
@@ -54,9 +54,10 @@ export default function MessageInput({
   return (
     <div is-="row" gap-="1" pad-="1" style={{ 
       borderTop: '1px solid var(--background2)',
-      backgroundColor: 'var(--background0)'
+      backgroundColor: 'var(--background0)',
+      padding: '0.5rem 1rem',
     }}>
-      <div style={{ flex: 1, position: 'relative' }}>
+      <div style={{ flex: 1, position: 'relative', padding: '0.5rem 0rem'}}>
         <textarea
           ref={textareaRef}
           value={message}
@@ -64,7 +65,7 @@ export default function MessageInput({
           onKeyDown={handleKeyDown}
           placeholder={placeholder || defaultPlaceholder}
           disabled={disabled}
-          rows={1}
+          rows={3}
           style={{
             width: '100%',
             minHeight: '2.5rem',
@@ -77,7 +78,7 @@ export default function MessageInput({
             fontFamily: 'var(--font-family)',
             backgroundColor: 'var(--background1)',
             color: 'var(--foreground0)',
-            overflow: 'hidden'
+            overflow: 'hidden',
           }}
         />
         
@@ -103,8 +104,8 @@ export default function MessageInput({
         variant-="primary"
         style={{
           alignSelf: 'flex-end',
-          minWidth: '4rem',
-          height: '2.5rem'
+          minWidth: '6rem',
+          height: '3.5rem',
         }}
       >
         送信
