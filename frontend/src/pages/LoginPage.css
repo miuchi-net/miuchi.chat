@@ -1,0 +1,160 @@
+/* MIUCHI.NET Simple Login Page */
+
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background0);
+  color: var(--foreground0);
+  padding: 2rem;
+}
+
+.login-content {
+  text-align: center;
+  max-width: 500px;
+  width: 100%;
+}
+
+/* ASCII Art Header */
+.ascii-header {
+  margin-bottom: 3rem;
+}
+
+.ascii-art {
+  font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  line-height: 1.1;
+  color: var(--primary);
+  text-shadow: 0 0 10px var(--primary);
+  white-space: pre;
+  margin: 0;
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from { text-shadow: 0 0 5px var(--primary), 0 0 10px var(--primary); }
+  to { text-shadow: 0 0 10px var(--primary), 0 0 20px var(--primary), 0 0 30px var(--primary); }
+}
+
+.status-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.status-indicator {
+  color: var(--accent);
+  font-size: 1rem;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.status-text {
+  font-size: 1rem;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 1px;
+  font-family: var(--font-family);
+}
+
+/* Login Section */
+.login-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.login-button {
+  background: var(--primary);
+  color: wheat;
+  border: 2px solid wheat;
+  padding: 1rem 3rem;
+  border-radius: 6px;
+  font-family: var(--font-family);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 200px;
+}
+
+.login-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--primary);
+  transform: translateY(-2px);
+}
+
+.login-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dev-login-button {
+  background: var(--background2);
+  color: var(--foreground1);
+  border: 1px solid var(--background2);
+  padding: 0.75rem 2rem;
+  border-radius: 4px;
+  font-family: var(--font-family);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.dev-login-button:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dev-login-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .login-container {
+    padding: 1rem;
+  }
+  
+  .ascii-art {
+    font-size: 0.6rem;
+  }
+  
+  .login-button {
+    padding: 0.75rem 2rem;
+    font-size: 0.9rem;
+    min-width: 180px;
+  }
+  
+  .dev-login-button {
+    padding: 0.5rem 1.5rem;
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .ascii-art {
+    font-size: 0.5rem;
+  }
+  
+  .login-button {
+    padding: 0.75rem 1.5rem;
+    font-size: 0.8rem;
+    min-width: 160px;
+  }
+  
+  .dev-login-button {
+    padding: 0.5rem 1rem;
+    font-size: 0.7rem;
+  }
+}

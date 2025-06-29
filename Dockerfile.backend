@@ -1,0 +1,32 @@
+# Rust バックエンド開発用 Dockerfile
+FROM rust:1.75
+
+# 必要なツールをインストール
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# SQLx CLI をインストール
+RUN cargo install sqlx-cli --no-default-features --features postgres
+
+# 作業ディレクトリを設定
+WORKDIR /workspace
+
+# バックエンドのCargoファイルをコピー（キャッシュ効率化）
+COPY Cargo.toml Cargo.lock ./
+
+# 依存関係をビルド（キャッシュ効率化）
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release
+RUN rm -rf src target/release/deps/miuchi*
+
+# バックエンドソースをコピー
+COPY src ./src
+COPY migrations ./migrations
+
+# ポート3000を公開
+EXPOSE 3000
+
+# デフォルトコマンド
+CMD ["cargo", "run", "--release"]

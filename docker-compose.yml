@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # Rust バックエンド開発環境
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    env_file:
+      - .env.development
+    volumes:
+      - .:/workspace
+      - cargo_cache:/usr/local/cargo/registry
+      - target_cache:/workspace/target
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/miuchi_chat
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=development_master_key
+      - DEV_MODE=true
+      - GITHUB_CLIENT_ID_DEV=Ov23liRj5MIhrGnSl2Bw
+      - GITHUB_CLIENT_SECRET_DEV=7b2cece55539b8e42b8cdebb6e3ebb39bd5d1326
+      - JWT_SECRET=development_jwt_secret_key_12345
+    depends_on:
+      postgres:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    ports:
+      - "3001:3000"  # バックエンドAPI
+    stdin_open: true
+    tty: true
+    command: bash -c "cd /workspace && cargo run"
+
+  # React フロントエンド開発環境
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:3001
+      - VITE_WS_URL=ws://localhost:3001
+    ports:
+      - "5173:5173"  # Vite開発サーバー
+    depends_on:
+      - backend
+    stdin_open: true
+    tty: true
+    command: ["sh", "-c", "cd /app && pnpm install && pnpm run dev -- --host 0.0.0.0"]
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: miuchi_chat
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.8
+    environment:
+      MEILI_MASTER_KEY: development_master_key
+      MEILI_ENV: development
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7700/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  meilisearch_data:
+  cargo_cache:
+  target_cache:
+  frontend_node_modules:

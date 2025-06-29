@@ -1,0 +1,48 @@
+[package]
+name = "miuchi-chat"
+version = "0.1.0"
+edition = "2021"
+description = "A Rust-based chat and voice call application"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["macros", "ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# OpenAPI documentation
+utoipa = { version = "4.2", features = ["axum_extras", "chrono"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "migrate"] }
+
+# Authentication
+jsonwebtoken = "9.3"
+oauth2 = "4.4"
+base64 = "0.22"
+
+
+# Async runtime
+tokio = { version = "1.45", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+
+# Environment variables
+dotenvy = "0.15"
+
+# WebSocket
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }

@@ -1,0 +1,38 @@
+{
+    "name": "miuchi-chat-frontend",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "packageManager": "pnpm@8.0.0",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc -b && vite build",
+        "lint": "eslint .",
+        "preview": "vite preview"
+    },
+  "dependencies": {
+    "@types/node": "^22.0.0",
+    "@webtui/css": "^0.1.2",
+    "@webtui/theme-catppuccin": "^0.0.3",
+    "@webtui/theme-gruvbox": "^0.0.1",
+    "@webtui/theme-nord": "^0.0.2",
+    "@webtui/theme-vitesse": "^0.0.1",
+    "axios": "^1.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+    "devDependencies": {
+        "@eslint/js": "^9.29.0",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.5",
+        "@vitejs/plugin-react": "^4.5.2",
+        "eslint": "^9.29.0",
+        "eslint-plugin-react-hooks": "^5.2.0",
+        "eslint-plugin-react-refresh": "^0.4.20",
+        "globals": "^16.2.0",
+        "typescript": "~5.8.3",
+        "typescript-eslint": "^8.34.1",
+        "vite": "^7.0.0"
+    }
+}

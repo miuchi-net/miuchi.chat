@@ -1,0 +1,26 @@
+# React フロントエンド開発用 Dockerfile
+FROM node:20-alpine
+
+# Alpine用のビルドツールをインストール
+RUN apk add --no-cache python3 make g++
+
+# pnpmをインストール
+RUN npm install -g pnpm@9.15.1
+
+# 作業ディレクトリを設定
+WORKDIR /app
+
+# package.jsonとpnpm-lock.yamlをコピー（キャッシュ効率化）
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+
+# 依存関係をインストール
+RUN pnpm install
+
+# フロントエンドのソースコードをコピー
+COPY frontend/ ./
+
+# ポート5173を公開（Viteのデフォルトポート）
+EXPOSE 5173
+
+# デフォルトコマンド
+CMD ["pnpm", "run", "dev", "--", "--host", "0.0.0.0"]

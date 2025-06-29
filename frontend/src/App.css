@@ -1,0 +1,7 @@
+/* App.css - Minimal WebTUI Layout */
+
+.app {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
