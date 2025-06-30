@@ -14,6 +14,10 @@ dev-up: ## 開発環境を起動
 dev-down: ## 開発環境を停止
 	docker compose down
 
+dev-restart: ## 開発環境を再起動
+	docker compose down
+	docker compose up -d
+
 dev-shell: ## 開発コンテナに入る
 	docker compose exec backend bash
 

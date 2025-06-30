@@ -127,6 +127,55 @@ impl FromRequestParts<PgPool> for AuthUser {
     }
 }
 
+// Combined state用の実装も追加
+impl FromRequestParts<(PgPool, crate::ws::AppState)> for AuthUser {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, state: &(PgPool, crate::ws::AppState)) -> Result<Self, Self::Rejection> {
+        let auth_header = parts
+            .headers
+            .get("Authorization")
+            .and_then(|header| header.to_str().ok())
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+        if !auth_header.starts_with("Bearer ") {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+
+        let token = auth_header.trim_start_matches("Bearer ");
+        
+        let secret = std::env::var("JWT_SECRET")
+            .unwrap_or_else(|_| "development_secret_key_change_in_production".to_string());
+
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.set_audience(&["miuchi.chat"]);
+
+        let token_data = decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(secret.as_ref()),
+            &validation,
+        )
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+        // ユーザーIDをUUIDにパース
+        let user_id = token_data.claims.sub.parse::<uuid::Uuid>()
+            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        
+        // DBからユーザー情報を取得して検証 (combined stateの最初の要素がPgPool)
+        let user = User::find_by_id(&state.0, user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+        Ok(AuthUser {
+            user_id: user.id.to_string(),
+            username: user.username,
+            email: user.email,
+            avatar_url: user.avatar_url,
+        })
+    }
+}
+
 pub fn router() -> Router<PgPool> {
     Router::new()
         .route("/login-url", get(login_url))

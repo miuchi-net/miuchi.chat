@@ -7,8 +7,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::models::{Message as DbMessage, Room, DbMessageType};
 use crate::api::auth::AuthUser;
@@ -124,7 +122,7 @@ pub struct MessagesResponse {
     pub next_cursor: Option<String>,
 }
 
-pub fn router() -> Router<PgPool> {
+pub fn router() -> Router<(PgPool, crate::ws::AppState)> {
     Router::new()
         .route("/rooms", get(get_rooms).post(create_room))
         .route("/online-users", get(get_online_users))
@@ -150,8 +148,9 @@ pub fn router() -> Router<PgPool> {
 async fn get_messages(
     Path(room_name): Path<String>,
     Query(params): Query<MessagesQuery>,
-    State(pool): State<PgPool>,
+    State(state): State<(PgPool, crate::ws::AppState)>,
 ) -> Result<Json<MessagesResponse>, axum::http::StatusCode> {
+    let pool = &state.0;
     let limit = params.limit.unwrap_or(50).min(100) as i64;
     
     // ルーム名からルームを検索
@@ -221,10 +220,11 @@ async fn get_messages(
 )]
 async fn send_message(
     Path(room_name): Path<String>,
-    State(pool): State<PgPool>,
+    State(state): State<(PgPool, crate::ws::AppState)>,
     user: AuthUser,
     Json(payload): Json<SendMessageRequest>,
 ) -> Result<Json<SendMessageResponse>, axum::http::StatusCode> {
+    let pool = &state.0;
     // ルーム名からルームを検索
     let room = Room::find_by_name(&pool, &room_name)
         .await
@@ -287,10 +287,11 @@ async fn send_message(
     )
 )]
 async fn create_room(
-    State(pool): State<PgPool>,
+    State(state): State<(PgPool, crate::ws::AppState)>,
     user: AuthUser,
     Json(payload): Json<CreateRoomRequest>,
 ) -> Result<Json<CreateRoomResponse>, axum::http::StatusCode> {
+    let pool = &state.0;
     // バリデーション
     if payload.name.is_empty() || payload.name.len() > 100 {
         return Err(axum::http::StatusCode::BAD_REQUEST);
@@ -351,9 +352,10 @@ async fn create_room(
 )]
 async fn get_room_members(
     Path(room_name): Path<String>,
-    State(pool): State<PgPool>,
+    State(state): State<(PgPool, crate::ws::AppState)>,
     user: AuthUser,
 ) -> Result<Json<RoomMembersResponse>, axum::http::StatusCode> {
+    let pool = &state.0;
     // ユーザーIDをUUIDにパース
     let user_id = user.user_id.parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
@@ -404,9 +406,10 @@ async fn get_room_members(
     )
 )]
 async fn get_rooms(
-    State(pool): State<PgPool>,
+    State(state): State<(PgPool, crate::ws::AppState)>,
     user: AuthUser,
 ) -> Result<Json<RoomsResponse>, axum::http::StatusCode> {
+    let pool = &state.0;
     // ユーザーIDをUUIDにパース
     let user_id = user.user_id.parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
@@ -450,10 +453,11 @@ async fn get_rooms(
 )]
 async fn invite_user(
     Path(room_name): Path<String>,
-    State(pool): State<PgPool>,
+    State(state): State<(PgPool, crate::ws::AppState)>,
     user: AuthUser,
     Json(payload): Json<InviteUserRequest>,
 ) -> Result<Json<InviteUserResponse>, axum::http::StatusCode> {
+    let pool = &state.0;
     // ユーザーIDをUUIDにパース
     let user_id = user.user_id.parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
@@ -523,32 +527,33 @@ async fn invite_user(
     )
 )]
 async fn get_online_users(
-    State(pool): State<PgPool>,
+    State(state): State<(PgPool, crate::ws::AppState)>,
     user: AuthUser, // 認証チェック
 ) -> Result<Json<OnlineUsersResponse>, axum::http::StatusCode> {
-    // 暫定的にモックデータを返す（実装の概念実証用）
-    // 本来ならWebSocket状態から取得すべき
+    let ws_state = &state.1;
+    // WebSocket状態から実際のオンラインユーザー情報を取得
+    let online_users_info = crate::ws::get_online_users_info(&ws_state).await;
     
-    let current_user_id = user.user_id.parse::<uuid::Uuid>()
-        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    let online_users: Vec<OnlineUser> = online_users_info
+        .into_iter()
+        .map(|(user_id, username, rooms, connected_at)| {
+            // std::time::Instant を chrono::DateTime<Utc> に変換
+            let connected_at_utc = chrono::Utc::now() - chrono::Duration::from_std(connected_at.elapsed())
+                .unwrap_or_else(|_| chrono::Duration::zero());
+            
+            OnlineUser {
+                user_id: user_id.to_string(),
+                username,
+                connected_rooms: rooms,
+                connected_at: connected_at_utc,
+            }
+        })
+        .collect();
     
-    let online_users = vec![
-        OnlineUser {
-            user_id: current_user_id.to_string(),
-            username: user.username.clone(),
-            connected_rooms: vec!["general".to_string(), "random".to_string()],
-            connected_at: chrono::Utc::now() - chrono::Duration::minutes(5),
-        },
-        OnlineUser {
-            user_id: "dummy-user-id".to_string(),
-            username: "demo_user".to_string(),
-            connected_rooms: vec!["general".to_string()],
-            connected_at: chrono::Utc::now() - chrono::Duration::minutes(12),
-        }
-    ];
+    let total_count = online_users.len();
     
     Ok(Json(OnlineUsersResponse {
         users: online_users,
-        total_count: 2,
+        total_count,
     }))
 }

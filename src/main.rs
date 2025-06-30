@@ -118,6 +118,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api-docs/openapi.json", get(openapi_json))
         .route("/swagger-ui", get(swagger_ui))
         .nest("/api", api::create_router().with_state(pool.clone()))
+        .merge(api::create_chat_router())
         .route("/ws", get(ws::websocket_handler))
         .with_state((pool, ws_state))
         .layer(CorsLayer::permissive());
