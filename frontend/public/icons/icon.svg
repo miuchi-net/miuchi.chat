@@ -1,0 +1,24 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="#1a1a1a"/>
+  
+  <!-- Chat bubble 1 -->
+  <rect x="80" y="120" width="240" height="160" rx="32" fill="#58a6ff" opacity="0.9"/>
+  <circle cx="140" cy="180" r="8" fill="white" opacity="0.8"/>
+  <circle cx="180" cy="180" r="8" fill="white" opacity="0.8"/>
+  <circle cx="220" cy="180" r="8" fill="white" opacity="0.8"/>
+  
+  <!-- Chat bubble 2 -->
+  <rect x="192" y="232" width="240" height="160" rx="32" fill="#39d353" opacity="0.9"/>
+  <rect x="232" y="292" width="120" height="12" rx="6" fill="white" opacity="0.8"/>
+  <rect x="232" y="316" width="80" height="12" rx="6" fill="white" opacity="0.8"/>
+  
+  <!-- Terminal cursor -->
+  <rect x="380" y="380" width="20" height="24" fill="#ffc107" opacity="0.9"/>
+  
+  <!-- Decorative elements -->
+  <rect x="120" y="60" width="8" height="8" fill="#58a6ff" opacity="0.6"/>
+  <rect x="160" y="80" width="12" height="12" fill="#39d353" opacity="0.6"/>
+  <rect x="380" y="80" width="10" height="10" fill="#ffc107" opacity="0.6"/>
+  <rect x="420" y="100" width="8" height="8" fill="#ff6b6b" opacity="0.6"/>
+</svg>

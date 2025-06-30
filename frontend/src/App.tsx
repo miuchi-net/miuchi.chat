@@ -7,6 +7,7 @@ import CallbackPage from './pages/CallbackPage'
 import ChatPage from './pages/ChatPage'
 import LoginPage from './pages/LoginPage'
 import OnlineUsersList from './components/chat/OnlineUsersList'
+import { notificationManager } from './services/notification'
 
 function ThemeSelector() {
     const [currentTheme, setCurrentTheme] = useState('gruvbox-dark')
@@ -217,6 +218,23 @@ function AppContent() {
 }
 
 function App() {
+    useEffect(() => {
+        // PWA初期化
+        notificationManager.initialize().then((service) => {
+            console.log('PWA初期化完了:', service)
+            
+            // 開発モードでは通知テスト
+            if (import.meta.env.DEV && service.isSupported) {
+                setTimeout(() => {
+                    notificationManager.showNotification(
+                        'miuchi.chat PWA',
+                        'PWA機能が有効になりました！'
+                    )
+                }, 2000)
+            }
+        }).catch(console.error)
+    }, [])
+
     return (
         <Router>
             <AuthProvider>
