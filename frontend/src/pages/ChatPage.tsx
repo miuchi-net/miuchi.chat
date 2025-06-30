@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useWebSocket } from '../hooks/useWebSocket'
 import MessageInput from '../components/chat/MessageInput'
@@ -12,6 +12,16 @@ export default function ChatPage() {
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoadingMessages, setIsLoadingMessages] = useState(false)
 
+    // useCallbackでコールバック関数を最適化
+    const handleMessage = useCallback((message: Message) => {
+        console.log('New message received:', message)
+        setMessages(prev => [...prev, message])
+    }, [])
+
+    const handleError = useCallback((error: Error) => {
+        console.error('WebSocket error:', error)
+    }, [])
+
     const {
         connectionStatus,
         sendMessage: wsSendMessage,
@@ -19,13 +29,8 @@ export default function ChatPage() {
         leaveRoom
     } = useWebSocket({
         roomId: selectedRoom?.id,
-        onMessage: (message) => {
-            console.log('New message received:', message)
-            setMessages(prev => [...prev, message])
-        },
-        onError: (error) => {
-            console.error('WebSocket error:', error)
-        }
+        onMessage: handleMessage,
+        onError: handleError
     })
 
     const handleRoomSelect = async (room: Room) => {

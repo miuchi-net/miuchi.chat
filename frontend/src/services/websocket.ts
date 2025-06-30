@@ -1,16 +1,15 @@
 import type { WsMessage } from '../types'
-import { MockWebSocketService } from './mockWebSocket'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws'
-const USE_MOCK = import.meta.env.VITE_USE_MOCK_WS === 'true' || false
 
 // WebSocket接続の設定
 const HEARTBEAT_INTERVAL = 30000 // 30秒
 const CONNECTION_TIMEOUT = 10000 // 10秒
-const MAX_RECONNECT_ATTEMPTS = 10
-const RECONNECT_DELAY_BASE = 1000 // 1秒
-const MAX_RECONNECT_DELAY = 30000 // 30秒
+const MAX_RECONNECT_ATTEMPTS = 5 // 再接続試行回数を減らす
+const RECONNECT_DELAY_BASE = 2000 // 2秒に増加
+const MAX_RECONNECT_DELAY = 60000 // 60秒に増加
 const MESSAGE_QUEUE_SIZE = 100
+const MIN_RECONNECT_INTERVAL = 5000 // 最小再接続間隔: 5秒
 
 interface QueuedMessage {
     message: WsMessage
@@ -28,8 +27,8 @@ enum ConnectionState {
 
 class WebSocketService {
     private socket: WebSocket | null = null
-    private messageHandler: ((message: WsMessage) => void) | null = null
-    private connectionStateHandler: ((state: ConnectionState) => void) | null = null
+    private messageHandlers: Set<(message: WsMessage) => void> = new Set()
+    private connectionStateHandlers: Set<(state: ConnectionState) => void> = new Set()
     private reconnectAttempts = 0
     private maxReconnectAttempts = MAX_RECONNECT_ATTEMPTS
     private reconnectTimeout: number | null = null
@@ -38,6 +37,8 @@ class WebSocketService {
     private messageQueue: QueuedMessage[] = []
     private currentToken: string = ''
     private lastPingTime: number = 0
+    private lastReconnectAttempt: number = 0 // 最後の再接続試行時刻
+    private isManualDisconnect: boolean = false // 手動切断フラグ
     private connectionMetrics = {
         totalConnections: 0,
         totalReconnections: 0,
@@ -50,6 +51,7 @@ class WebSocketService {
     connect(token: string): Promise<void> {
         return new Promise((resolve, reject) => {
             this.currentToken = token
+            this.isManualDisconnect = false // 手動切断フラグをリセット
             
             if (this.socket) {
                 this.disconnect()
@@ -76,7 +78,7 @@ class WebSocketService {
 
                 this.socket.onopen = () => {
                     clearTimeout(connectionTimeout)
-                    console.log('WebSocket connected successfully')
+                    console.log(`WebSocket connected successfully to ${wsUrl}`)
                     this.updateConnectionState(ConnectionState.CONNECTED)
                     this.reconnectAttempts = 0
                     this.startHeartbeat()
@@ -112,6 +114,7 @@ class WebSocketService {
     }
 
     disconnect() {
+        this.isManualDisconnect = true // 手動切断を記録
         this.clearReconnectTimeout()
         this.stopHeartbeat()
         
@@ -122,6 +125,7 @@ class WebSocketService {
         
         this.updateConnectionState(ConnectionState.DISCONNECTED)
         this.messageQueue = []
+        this.reconnectAttempts = 0 // 再接続カウンターをリセット
         console.log('WebSocket disconnected by client')
     }
 
@@ -152,11 +156,13 @@ class WebSocketService {
     }
 
     onMessage(handler: (message: WsMessage) => void) {
-        this.messageHandler = handler
+        this.messageHandlers.add(handler)
+        return () => this.messageHandlers.delete(handler) // 登録解除関数を返す
     }
     
     onConnectionStateChange(handler: (state: ConnectionState) => void) {
-        this.connectionStateHandler = handler
+        this.connectionStateHandlers.add(handler)
+        return () => this.connectionStateHandlers.delete(handler) // 登録解除関数を返す
     }
 
     isConnected(): boolean {
@@ -251,9 +257,14 @@ class WebSocketService {
                 return
             }
             
-            if (this.messageHandler) {
-                this.messageHandler(message)
-            }
+            // 全てのメッセージハンドラーに通知
+            this.messageHandlers.forEach(handler => {
+                try {
+                    handler(message)
+                } catch (error) {
+                    console.error('Error in message handler:', error)
+                }
+            })
         } catch (error) {
             console.error('Failed to parse WebSocket message:', error, event.data)
             this.connectionMetrics.totalErrors++
@@ -263,6 +274,12 @@ class WebSocketService {
     private handleClose(event: CloseEvent) {
         console.log('WebSocket disconnected:', event.code, event.reason)
         this.stopHeartbeat()
+        
+        // 手動切断の場合は再接続しない
+        if (this.isManualDisconnect) {
+            this.updateConnectionState(ConnectionState.DISCONNECTED)
+            return
+        }
         
         if (event.code === 1000) {
             // 正常な切断
@@ -304,9 +321,20 @@ class WebSocketService {
             return
         }
         
+        // 最小再接続間隔をチェック
+        const now = Date.now()
+        const timeSinceLastAttempt = now - this.lastReconnectAttempt
+        if (timeSinceLastAttempt < MIN_RECONNECT_INTERVAL) {
+            const additionalDelay = MIN_RECONNECT_INTERVAL - timeSinceLastAttempt
+            console.log(`Delaying reconnect by additional ${additionalDelay}ms to respect minimum interval`)
+            setTimeout(() => this.scheduleReconnect(), additionalDelay)
+            return
+        }
+        
         this.updateConnectionState(ConnectionState.RECONNECTING)
         this.reconnectAttempts++
         this.connectionMetrics.totalReconnections++
+        this.lastReconnectAttempt = now
         
         // 指数バックオフ
         const delay = Math.min(
@@ -372,8 +400,15 @@ class WebSocketService {
         const previousState = this.connectionState
         this.connectionState = state
         
-        if (this.connectionStateHandler && previousState !== state) {
-            this.connectionStateHandler(state)
+        if (previousState !== state) {
+            // 全ての接続状態ハンドラーに通知
+            this.connectionStateHandlers.forEach(handler => {
+                try {
+                    handler(state)
+                } catch (error) {
+                    console.error('Error in connection state handler:', error)
+                }
+            })
         }
         
         console.debug('Connection state changed:', previousState, '->', state)
@@ -387,8 +422,8 @@ class WebSocketService {
 }
 
 
-// 環境に応じてWebSocketサービスを選択
-export const wsService = USE_MOCK ? new MockWebSocketService() : new WebSocketService()
+// WebSocketサービスのインスタンスを作成
+export const wsService = new WebSocketService()
 
 // エクスポート
 export { ConnectionState }

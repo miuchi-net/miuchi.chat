@@ -52,11 +52,15 @@ export interface SendMessageResponse {
 
 // WebSocket message types
 export type WsMessage =
-    | { type: 'join_room'; room: string; token: string }
+    | { type: 'join_room'; room: string }
     | { type: 'send_message'; room: string; content: string; message_type?: string }
     | { type: 'leave_room'; room: string }
+    | { type: 'ping'; timestamp?: number }
     | { type: 'room_joined'; room: string; user_id: string; username: string }
     | { type: 'message'; id: string; room: string; user_id: string; username: string; content: string; message_type: string; timestamp: string }
     | { type: 'user_joined'; room: string; user_id: string; username: string }
     | { type: 'user_left'; room: string; user_id: string; username: string }
-    | { type: 'error'; message: string };
+    | { type: 'pong'; timestamp?: number }
+    | { type: 'error'; message: string; code?: number }
+    | { type: 'auth_required' }
+    | { type: 'rate_limited'; retry_after: number };
