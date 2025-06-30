@@ -11,6 +11,7 @@ export interface Message {
     room_id: string;
     author_id: string;
     author_name: string;
+    author_avatar?: string;
     content: string;
     message_type?: 'text' | 'image' | 'file' | 'system';
     created_at: string;
@@ -100,3 +101,17 @@ export type WsMessage =
     | { type: 'error'; message: string; code?: number }
     | { type: 'auth_required' }
     | { type: 'rate_limited'; retry_after: number };
+
+// Search types
+export interface SearchResult {
+    message: Message;
+    highlights: string[];
+    score: number;
+}
+
+export interface SearchResponse {
+    results: SearchResult[];
+    total_hits: number;
+    query_time_ms: number;
+    has_more: boolean;
+}

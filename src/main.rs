@@ -104,6 +104,18 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     tracing::info!("Database connected: {}", version.0);
 
+    // Meilisearchクライアントを初期化
+    let meilisearch_url = std::env::var("MEILI_URL")
+        .unwrap_or_else(|_| "http://meilisearch:7700".to_string());
+    let meilisearch_key = std::env::var("MEILI_MASTER_KEY").ok();
+    
+    let meili_client = if let Some(key) = meilisearch_key {
+        meilisearch_sdk::client::Client::new(meilisearch_url, Some(key))?
+    } else {
+        meilisearch_sdk::client::Client::new(meilisearch_url, None::<String>)?
+    };
+    tracing::info!("Meilisearch client initialized");
+
     // WebSocket用の状態管理を初期化
     let ws_state: ws::AppState = Arc::new(RwLock::new(HashMap::new()));
     
@@ -117,10 +129,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/db-health", get(db_health_check))
         .route("/api-docs/openapi.json", get(openapi_json))
         .route("/swagger-ui", get(swagger_ui))
-        .nest("/api", api::create_router().with_state(pool.clone()))
+        .nest("/api", api::create_router().with_state((pool.clone(), meili_client.clone())))
         .merge(api::create_chat_router())
         .route("/ws", get(ws::websocket_handler))
-        .with_state((pool, ws_state))
+        .with_state((pool, ws_state, meili_client))
         .layer(CorsLayer::permissive());
 
     // サーバーを起動
@@ -147,7 +159,7 @@ async fn health_check() -> Json<Value> {
     }))
 }
 
-async fn db_health_check(State((pool, _)): State<(PgPool, ws::AppState)>) -> Json<Value> {
+async fn db_health_check(State((pool, _, _)): State<(PgPool, ws::AppState, meilisearch_sdk::client::Client)>) -> Json<Value> {
     match sqlx::query("SELECT 1").execute(&pool).await {
         Ok(_) => Json(json!({
             "status": "healthy",

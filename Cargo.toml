@@ -46,3 +46,6 @@ futures-util = "0.3"
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json"] }
+
+# Search engine
+meilisearch-sdk = "0.27"

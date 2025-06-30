@@ -7,6 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
+use meilisearch_sdk::client::Client as MeilisearchClient;
 
 use crate::models::{Message as DbMessage, Room, DbMessageType};
 use crate::api::auth::AuthUser;
@@ -15,10 +16,11 @@ use crate::api::auth::AuthUser;
 pub struct Message {
     pub id: String,
     pub room_id: String,
-    pub user_id: String,
-    pub username: String,
+    pub author_id: String,
+    pub author_name: String,
+    pub author_avatar: Option<String>,
     pub content: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub message_type: MessageType,
 }
 
@@ -122,7 +124,7 @@ pub struct MessagesResponse {
     pub next_cursor: Option<String>,
 }
 
-pub fn router() -> Router<(PgPool, crate::ws::AppState)> {
+pub fn router() -> Router<(PgPool, crate::ws::AppState, MeilisearchClient)> {
     Router::new()
         .route("/rooms", get(get_rooms).post(create_room))
         .route("/online-users", get(get_online_users))
@@ -148,7 +150,7 @@ pub fn router() -> Router<(PgPool, crate::ws::AppState)> {
 async fn get_messages(
     Path(room_name): Path<String>,
     Query(params): Query<MessagesQuery>,
-    State(state): State<(PgPool, crate::ws::AppState)>,
+    State(state): State<(PgPool, crate::ws::AppState, MeilisearchClient)>,
 ) -> Result<Json<MessagesResponse>, axum::http::StatusCode> {
     let pool = &state.0;
     let limit = params.limit.unwrap_or(50).min(100) as i64;
@@ -180,10 +182,11 @@ async fn get_messages(
         Message {
             id: msg.id.to_string(),
             room_id: msg.room_id.to_string(),
-            user_id: msg.user_id.to_string(),
-            username: msg.username,
+            author_id: msg.user_id.to_string(),
+            author_name: msg.username,
+            author_avatar: msg.avatar_url,
             content: msg.content,
-            timestamp: msg.created_at,
+            created_at: msg.created_at,
             message_type: match msg.message_type {
                 DbMessageType::Text => MessageType::Text,
                 DbMessageType::Image => MessageType::Image,
@@ -220,11 +223,12 @@ async fn get_messages(
 )]
 async fn send_message(
     Path(room_name): Path<String>,
-    State(state): State<(PgPool, crate::ws::AppState)>,
+    State(state): State<(PgPool, crate::ws::AppState, MeilisearchClient)>,
     user: AuthUser,
     Json(payload): Json<SendMessageRequest>,
 ) -> Result<Json<SendMessageResponse>, axum::http::StatusCode> {
     let pool = &state.0;
+    let meili_client = &state.2;
     // ルーム名からルームを検索
     let room = Room::find_by_name(&pool, &room_name)
         .await
@@ -259,11 +263,40 @@ async fn send_message(
         &pool,
         room.id,
         user_id,
-        payload.content,
-        db_message_type,
+        payload.content.clone(),
+        db_message_type.clone(),
     )
     .await
     .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // ユーザー情報を取得
+    let user_info = crate::models::User::find_by_id(&pool, user_id)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+
+    // Meilisearchにインデックス追加
+    let index = meili_client.index("messages");
+    let search_document = serde_json::json!({
+        "id": message.id.to_string(),
+        "room_id": room.id.to_string(),
+        "room_name": room.name,
+        "author_id": user_id.to_string(),
+        "author_name": user_info.username,
+        "content": payload.content,
+        "created_at": message.created_at.timestamp(),
+        "message_type": match db_message_type {
+            DbMessageType::Text => "text",
+            DbMessageType::Image => "image", 
+            DbMessageType::File => "file",
+            DbMessageType::System => "system",
+        }
+    });
+
+    if let Err(e) = index.add_documents(&[search_document], Some("id")).await {
+        tracing::error!("Failed to index message in Meilisearch: {}", e);
+        // エラーをログに記録するが、メッセージ送信自体は成功とする
+    }
     
     Ok(Json(SendMessageResponse {
         message_id: message.id.to_string(),
@@ -287,7 +320,7 @@ async fn send_message(
     )
 )]
 async fn create_room(
-    State(state): State<(PgPool, crate::ws::AppState)>,
+    State(state): State<(PgPool, crate::ws::AppState, MeilisearchClient)>,
     user: AuthUser,
     Json(payload): Json<CreateRoomRequest>,
 ) -> Result<Json<CreateRoomResponse>, axum::http::StatusCode> {
@@ -352,7 +385,7 @@ async fn create_room(
 )]
 async fn get_room_members(
     Path(room_name): Path<String>,
-    State(state): State<(PgPool, crate::ws::AppState)>,
+    State(state): State<(PgPool, crate::ws::AppState, MeilisearchClient)>,
     user: AuthUser,
 ) -> Result<Json<RoomMembersResponse>, axum::http::StatusCode> {
     let pool = &state.0;
@@ -406,7 +439,7 @@ async fn get_room_members(
     )
 )]
 async fn get_rooms(
-    State(state): State<(PgPool, crate::ws::AppState)>,
+    State(state): State<(PgPool, crate::ws::AppState, MeilisearchClient)>,
     user: AuthUser,
 ) -> Result<Json<RoomsResponse>, axum::http::StatusCode> {
     let pool = &state.0;
@@ -453,7 +486,7 @@ async fn get_rooms(
 )]
 async fn invite_user(
     Path(room_name): Path<String>,
-    State(state): State<(PgPool, crate::ws::AppState)>,
+    State(state): State<(PgPool, crate::ws::AppState, MeilisearchClient)>,
     user: AuthUser,
     Json(payload): Json<InviteUserRequest>,
 ) -> Result<Json<InviteUserResponse>, axum::http::StatusCode> {
@@ -527,7 +560,7 @@ async fn invite_user(
     )
 )]
 async fn get_online_users(
-    State(state): State<(PgPool, crate::ws::AppState)>,
+    State(state): State<(PgPool, crate::ws::AppState, MeilisearchClient)>,
     user: AuthUser, // 認証チェック
 ) -> Result<Json<OnlineUsersResponse>, axum::http::StatusCode> {
     let ws_state = &state.1;

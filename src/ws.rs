@@ -135,7 +135,7 @@ const WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(5);
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     Query(query): Query<WsQuery>,
-    State((pool, app_state)): State<(PgPool, AppState)>,
+    State((pool, app_state, meili_client)): State<(PgPool, AppState, meilisearch_sdk::client::Client)>,
 ) -> Response {
     // トークンが必要
     let token = match query.token {
@@ -164,11 +164,11 @@ pub async fn websocket_handler(
         user.username, user.id
     );
 
-    ws.on_upgrade(move |socket| websocket_connection(socket, user, pool, app_state))
+    ws.on_upgrade(move |socket| websocket_connection(socket, user, pool, app_state, meili_client))
 }
 
 // WebSocket接続の処理
-async fn websocket_connection(socket: WebSocket, user: User, pool: PgPool, app_state: AppState) {
+async fn websocket_connection(socket: WebSocket, user: User, pool: PgPool, app_state: AppState, meili_client: meilisearch_sdk::client::Client) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = broadcast::channel::<WsMessage>(100);
 
@@ -318,6 +318,7 @@ async fn websocket_connection(socket: WebSocket, user: User, pool: PgPool, app_s
                             &pool,
                             &app_state,
                             &tx,
+                            &meili_client,
                         )
                         .await
                         {
@@ -409,6 +410,7 @@ async fn handle_websocket_message(
     pool: &PgPool,
     app_state: &AppState,
     sender: &broadcast::Sender<WsMessage>,
+    meili_client: &meilisearch_sdk::client::Client,
 ) -> anyhow::Result<()> {
     match msg {
         WsMessage::JoinRoom { room } => {
@@ -509,6 +511,29 @@ async fn handle_websocket_message(
                 db_message_type.clone(),
             )
             .await?;
+
+            // Meilisearchにインデックス追加
+            let index = meili_client.index("messages");
+            let search_document = serde_json::json!({
+                "id": message.id.to_string(),
+                "room_id": room_obj.id.to_string(),
+                "room_name": room_obj.name,
+                "author_id": user.id.to_string(),
+                "author_name": user.username,
+                "content": content,
+                "created_at": message.created_at.timestamp(),
+                "message_type": match db_message_type {
+                    DbMessageType::Text => "text",
+                    DbMessageType::Image => "image", 
+                    DbMessageType::File => "file",
+                    DbMessageType::System => "system",
+                }
+            });
+
+            if let Err(e) = index.add_documents(&[search_document], Some("id")).await {
+                tracing::error!("Failed to index message in Meilisearch: {}", e);
+                // エラーをログに記録するが、メッセージ送信自体は成功とする
+            }
 
             // 全クライアントにブロードキャスト
             let ws_message = WsMessage::Message {

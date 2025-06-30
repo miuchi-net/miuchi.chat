@@ -141,18 +141,44 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
                 marginBottom: '0.25rem'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.5rem',
+                flex: 1,
+                minWidth: 0 
+              }}>
                 <FaHashtag 
                   size={12} 
                   style={{ 
-                    color: room.is_public ? 'var(--foreground1)' : 'var(--warning)' 
+                    color: room.is_public ? 'var(--foreground1)' : 'var(--warning)',
+                    flexShrink: 0
                   }} 
                 />
-                <span style={{ fontWeight: 'bold', fontSize: '0.9rem', fontFamily: 'var(--font-mono)' }}>
+                <span style={{ 
+                  fontWeight: 'bold', 
+                  fontSize: '0.9rem', 
+                  fontFamily: 'var(--font-mono)',
+                  flexShrink: 0
+                }}>
                   {room.name}
                 </span>
                 {room.is_public === false && (
-                  <FaLock size={10} style={{ color: 'var(--warning)' }} />
+                  <FaLock size={10} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+                )}
+                {room.description && (
+                  <span style={{ 
+                    fontSize: '0.75rem', 
+                    color: 'var(--foreground2)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: 1,
+                    minWidth: 0,
+                    marginLeft: '0.25rem'
+                  }}>
+                    — {room.description}
+                  </span>
                 )}
               </div>
             </div>

@@ -82,7 +82,13 @@ export const api = {
         if (limit) params.append('limit', limit.toString())
         if (from) params.append('from', from)
 
-        const response = await apiClient.get(`/chat/${room}/messages?${params}`)
+        const url = `/chat/${room}/messages?${params}`
+        console.log('🌐 API Request:', url)
+        console.log('📊 Request params:', { room, limit, from })
+        
+        const response = await apiClient.get(url)
+        console.log('🌐 API Response status:', response.status)
+        console.log('🌐 API Response data:', response.data)
         return response.data
     },
 

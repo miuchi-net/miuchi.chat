@@ -17,7 +17,7 @@ interface UseWebSocketReturn {
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
-  const { roomId, onMessage, onRoomCreated, onError } = options
+  const { roomId, onMessage, onError } = options
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'failed'>('disconnected')
   const currentRoomRef = useRef<string | null>(null)
 
@@ -71,7 +71,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               author_name: message.username,
               content: message.content,
               message_type: message.message_type as 'text' | 'image' | 'file' | 'system',
-              created_at: message.timestamp
+              created_at: typeof message.timestamp === 'string' ? message.timestamp : new Date(message.timestamp || Date.now()).toISOString()
             }
             onMessageRef.current(msg)
           }

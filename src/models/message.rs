@@ -29,6 +29,7 @@ pub struct MessageWithUser {
     pub room_id: Uuid,
     pub user_id: Uuid,
     pub username: String,
+    pub avatar_url: Option<String>,
     pub content: String,
     pub message_type: DbMessageType,
     pub created_at: DateTime<Utc>,
@@ -72,6 +73,7 @@ impl Message {
                 m.room_id,
                 m.user_id,
                 u.username,
+                u.avatar_url,
                 m.content,
                 m.message_type,
                 m.created_at
@@ -88,6 +90,7 @@ impl Message {
                 m.room_id,
                 m.user_id,
                 u.username,
+                u.avatar_url,
                 m.content,
                 m.message_type,
                 m.created_at

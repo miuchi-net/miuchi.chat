@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react'
-import { FaUsers, FaLock, FaWifi } from 'react-icons/fa'
+import { useState, useCallback, useEffect } from 'react'
+import { FaUsers, FaLock, FaWifi, FaSearch } from 'react-icons/fa'
 import { useAuth } from '../contexts/AuthContext'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { api } from '../services/api'
@@ -7,6 +7,7 @@ import MessageInput from '../components/chat/MessageInput'
 import MessageList from '../components/chat/MessageList'
 import RoomList from '../components/chat/RoomList'
 import MemberList from '../components/chat/MemberList'
+import { SearchModal } from '../components/chat/SearchModal'
 import type { Message, Room } from '../types'
 
 export default function ChatPage() {
@@ -21,6 +22,7 @@ export default function ChatPage() {
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoadingMessages, setIsLoadingMessages] = useState(false)
     const [showMemberList, setShowMemberList] = useState(false)
+    const [showSearchModal, setShowSearchModal] = useState(false)
 
     // useCallbackでコールバック関数を最適化
     const handleMessage = useCallback((message: Message) => {
@@ -50,8 +52,36 @@ export default function ChatPage() {
         onError: handleError
     })
 
+    // 初期のgeneralルームのメッセージをロード
+    useEffect(() => {
+        if (selectedRoom && selectedRoom.name === 'general') {
+            loadInitialMessages(selectedRoom)
+        }
+    }, [selectedRoom])
+
+    const loadInitialMessages = async (room: Room) => {
+        console.log('🔄 Loading initial messages for room:', room.name)
+        setIsLoadingMessages(true)
+        try {
+            const response = await api.getMessages(room.name, 50)
+            console.log('✅ API response received:', response)
+            console.log('📝 Messages count:', response.messages?.length || 0)
+            console.log('📋 Messages data:', response.messages)
+            setMessages(response.messages)
+        } catch (error: any) {
+            console.error('❌ Failed to load initial messages:', error)
+            console.error('❌ Error details:', error.response?.data || error.message)
+            setMessages([])
+        } finally {
+            setIsLoadingMessages(false)
+        }
+    }
+
     const handleRoomSelect = async (room: Room) => {
+        console.log('🚪 Room select triggered:', room.name, room.id)
+        
         if (selectedRoom) {
+            console.log('👋 Leaving current room:', selectedRoom.name)
             await leaveRoom(selectedRoom.id)
         }
         
@@ -60,16 +90,21 @@ export default function ChatPage() {
         setIsLoadingMessages(true)
         
         try {
+            console.log('🔄 Loading messages for selected room:', room.name)
             // Load messages from API
             const response = await api.getMessages(room.name, 50)
+            console.log('✅ Room select API response:', response)
+            console.log('📝 Room select messages count:', response.messages?.length || 0)
             setMessages(response.messages)
-        } catch (error) {
-            console.error('Failed to load messages:', error)
+        } catch (error: any) {
+            console.error('❌ Failed to load messages for room:', error)
+            console.error('❌ Room select error details:', error.response?.data || error.message)
             // エラー時は空のメッセージ配列のまま
         } finally {
             setIsLoadingMessages(false)
         }
         
+        console.log('🔗 Joining room via WebSocket:', room.id)
         await joinRoom(room.id)
     }
 
@@ -84,6 +119,7 @@ export default function ChatPage() {
         // Automatically join the newly created room
         await handleRoomSelect(newRoom)
     }
+
 
     if (!user) {
         return (
@@ -158,7 +194,12 @@ export default function ChatPage() {
                             </div>
 
                             {/* 右側: 接続状態とメンバーボタン */}
-                            <div is-="row" align-="center" gap-="1">
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                            }}>
                                 {connectionStatus === 'connected' ? (
                                     <FaWifi 
                                         size={12} 
@@ -177,6 +218,22 @@ export default function ChatPage() {
                                     </span>
                                 )}
                                 
+                                <button
+                                    onClick={() => setShowSearchModal(true)}
+                                    is-="button"
+                                    size-="small"
+                                    variant-="background2"
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        fontSize: '0.7rem'
+                                    }}
+                                    title="検索"
+                                >
+                                    <FaSearch size={10} />
+                                </button>
+
                                 {selectedRoom.is_public === false && (
                                     <button
                                         onClick={() => setShowMemberList(true)}
@@ -225,6 +282,13 @@ export default function ChatPage() {
                     room={selectedRoom}
                     isVisible={showMemberList}
                     onClose={() => setShowMemberList(false)}
+                />
+
+                {/* 検索モーダル */}
+                <SearchModal
+                    isVisible={showSearchModal}
+                    onClose={() => setShowSearchModal(false)}
+                    currentRoom={selectedRoom?.name}
                 />
             </div>
         </div>

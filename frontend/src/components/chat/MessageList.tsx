@@ -8,6 +8,8 @@ interface MessageListProps {
 
 export default function MessageList({ messages, isLoading = false }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  console.log('MessageList received messages:', messages)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -114,24 +116,61 @@ export default function MessageList({ messages, isLoading = false }: MessageList
                   {/* アバター */}
                   <div style={{ width: '2rem', display: 'flex', justifyContent: 'center' }}>
                     {showAvatar && (
-                      <div style={{
-                        width: '2rem',
-                        height: '2rem',
-                        borderRadius: '4px',
-                        backgroundColor: 'var(--background2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '0.8rem',
-                        fontWeight: 'bold',
-                        color: 'var(--foreground0)'
-                      }}>
-                        {/* {message.author_name.charAt(0).toUpperCase()} */}
-                        {message.author_name ?
-                          message.author_name.charAt(0).toUpperCase() :
-                          '?'
-                        }
-                      </div>
+                      message.author_avatar ? (
+                        <img
+                          src={message.author_avatar}
+                          alt={message.author_name}
+                          style={{
+                            width: '2rem',
+                            height: '2rem',
+                            borderRadius: '4px',
+                            border: '1px solid var(--background2)',
+                            objectFit: 'cover'
+                          }}
+                          onError={(e) => {
+                            // 画像の読み込みに失敗した場合はイニシャルにフォールバック
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent) {
+                              parent.innerHTML = `
+                                <div style="
+                                  width: 2rem;
+                                  height: 2rem;
+                                  border-radius: 4px;
+                                  background-color: var(--background2);
+                                  display: flex;
+                                  align-items: center;
+                                  justify-content: center;
+                                  font-size: 0.8rem;
+                                  font-weight: bold;
+                                  color: var(--foreground0);
+                                ">
+                                  ${message.author_name ? message.author_name.charAt(0).toUpperCase() : '?'}
+                                </div>
+                              `;
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div style={{
+                          width: '2rem',
+                          height: '2rem',
+                          borderRadius: '4px',
+                          backgroundColor: 'var(--background2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.8rem',
+                          fontWeight: 'bold',
+                          color: 'var(--foreground0)'
+                        }}>
+                          {message.author_name ?
+                            message.author_name.charAt(0).toUpperCase() :
+                            '?'
+                          }
+                        </div>
+                      )
                     )}
                   </div>
 
