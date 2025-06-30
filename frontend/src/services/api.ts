@@ -66,6 +66,37 @@ export const api = {
         return response.data
     },
 
+    createRoom: async (name: string, description?: string, isPublic: boolean = true) => {
+        const response = await apiClient.post('/chat/rooms', {
+            name,
+            description,
+            is_public: isPublic,
+        })
+        return response.data
+    },
+
+    getRooms: async () => {
+        const response = await apiClient.get('/chat/rooms')
+        return response.data
+    },
+
+    getRoomMembers: async (room: string) => {
+        const response = await apiClient.get(`/chat/${room}/members`)
+        return response.data
+    },
+
+    inviteUser: async (room: string, username: string) => {
+        const response = await apiClient.post(`/chat/${room}/invite`, {
+            username
+        })
+        return response.data
+    },
+
+    getOnlineUsers: async () => {
+        const response = await apiClient.get('/chat/online-users')
+        return response.data
+    },
+
     // Search endpoints
     searchMessages: async (query: string, room?: string) => {
         const params = new URLSearchParams({ q: query })

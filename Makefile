@@ -15,27 +15,27 @@ dev-down: ## 開発環境を停止
 	docker compose down
 
 dev-shell: ## 開発コンテナに入る
-	docker compose exec dev bash
+	docker compose exec backend bash
 
 init-project: ## 新しいRustプロジェクトを初期化
-	docker compose exec dev cargo init --name miuchi-chat .
+	docker compose exec backend cargo init --name miuchi-chat .
 
 check: ## コードチェック
-	docker compose exec dev cargo check
+	docker compose exec backend cargo check
 
 test: ## テスト実行
-	docker compose exec dev cargo test
+	docker compose exec backend cargo test
 
 build: ## ビルド
-	docker compose exec dev cargo build
+	docker compose exec backend cargo build
 
 clean: ## クリーンアップ
-	docker compose exec dev cargo clean
+	docker compose exec backend cargo clean
 	docker compose down --volumes --remove-orphans
 
 # データベース関連
 db-migrate: ## データベースマイグレーション実行
-	docker compose exec dev sqlx migrate run
+	docker compose exec backend sqlx migrate run
 
 db-reset: ## データベースリセット
-	docker compose exec dev sqlx database reset -y
+	docker compose exec backend sqlx database reset -y

@@ -14,6 +14,8 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newRoomName, setNewRoomName] = useState('')
   const [newRoomDescription, setNewRoomDescription] = useState('')
+  const [newRoomIsPublic, setNewRoomIsPublic] = useState(true) // デフォルトはパブリック
+  const [createError, setCreateError] = useState<string | null>(null)
 
   useEffect(() => {
     loadRooms()
@@ -22,19 +24,12 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
   const loadRooms = async () => {
     try {
       setIsLoading(true)
-      // For now, use mock data since we don't have backend implemented yet
-      const mockRooms: Room[] = [
-        { id: '1', name: 'general', description: '一般的な話題' },
-        { id: '2', name: 'tech', description: '技術的な話題' },
-        { id: '3', name: 'random', description: 'その他の話題' }
-      ]
-      setRooms(mockRooms)
-      
-      // When backend is ready, use:
-      // const response = await api.getRooms()
-      // setRooms(response.rooms)
+      const response = await api.getRooms()
+      setRooms(response.rooms)
     } catch (error) {
       console.error('Failed to load rooms:', error)
+      // エラー時は空のルーム配列
+      setRooms([])
     } finally {
       setIsLoading(false)
     }
@@ -44,29 +39,43 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
     if (!newRoomName.trim()) return
 
     try {
-      // For now, create a mock room
+      setCreateError(null) // エラーをクリア
+      
+      // Call the real API to create the room
+      const response = await api.createRoom(
+        newRoomName.trim(),
+        newRoomDescription.trim() || undefined,
+        newRoomIsPublic
+      )
+      
+      // Convert API response to Room type
       const newRoom: Room = {
-        id: Date.now().toString(),
-        name: newRoomName.trim(),
-        description: newRoomDescription.trim() || undefined,
-        created_at: new Date().toISOString()
+        id: response.id,
+        name: response.name,
+        description: response.description,
+        is_public: response.is_public,
+        created_at: response.created_at
       }
       
       setRooms(prev => [...prev, newRoom])
       setShowCreateForm(false)
       setNewRoomName('')
       setNewRoomDescription('')
+      setNewRoomIsPublic(true)
+      setCreateError(null)
       
       if (onRoomCreate) {
         onRoomCreate(newRoom)
       }
-      
-      // When backend is ready, use:
-      // const response = await api.createRoom({ name: newRoomName, description: newRoomDescription })
-      // setRooms(prev => [...prev, response])
-      // if (onRoomCreate) onRoomCreate(response)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create room:', error)
+      if (error.response?.status === 409) {
+        setCreateError(`チャンネル名 "${newRoomName}" は既に使用されています`)
+      } else if (error.response?.status === 400) {
+        setCreateError('チャンネル名が無効です')
+      } else {
+        setCreateError('チャンネルの作成に失敗しました')
+      }
     }
   }
 
@@ -123,9 +132,23 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
                 marginBottom: '0.25rem'
               }}
             >
-              <span style={{ fontWeight: 'bold', fontSize: '0.9rem', fontFamily: 'var(--font-mono)' }}>
-                #{room.name}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontWeight: 'bold', fontSize: '0.9rem', fontFamily: 'var(--font-mono)' }}>
+                  #{room.name}
+                </span>
+                {room.is_public === false && (
+                  <span style={{ 
+                    fontSize: '0.6rem', 
+                    color: 'var(--foreground2)',
+                    backgroundColor: 'var(--background2)',
+                    padding: '0.1rem 0.3rem',
+                    borderRadius: '2px',
+                    fontFamily: 'var(--font-mono)'
+                  }}>
+                    PRIVATE
+                  </span>
+                )}
+              </div>
             </div>
           ))
         )}
@@ -137,7 +160,10 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
           <input
             type="text"
             value={newRoomName}
-            onChange={(e) => setNewRoomName(e.target.value)}
+            onChange={(e) => {
+              setNewRoomName(e.target.value)
+              setCreateError(null) // 入力時にエラーをクリア
+            }}
             placeholder="チャンネル名"
             style={{ fontSize: '0.8rem' }}
             onKeyPress={(e) => e.key === 'Enter' && handleCreateRoom()}
@@ -150,6 +176,50 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
             style={{ fontSize: '0.8rem' }}
             onKeyPress={(e) => e.key === 'Enter' && handleCreateRoom()}
           />
+          
+          {/* パブリック/プライベート選択 */}
+          <div is-="column" gap-="0.5">
+            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--foreground1)' }}>
+              チャンネルタイプ
+            </span>
+            <div is-="column" gap-="0.25">
+              <label style={{ fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  type="radio"
+                  name="roomType"
+                  checked={newRoomIsPublic}
+                  onChange={() => setNewRoomIsPublic(true)}
+                  style={{ margin: 0 }}
+                />
+                <span>パブリック - 誰でも参加可能</span>
+              </label>
+              <label style={{ fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  type="radio"
+                  name="roomType"
+                  checked={!newRoomIsPublic}
+                  onChange={() => setNewRoomIsPublic(false)}
+                  style={{ margin: 0 }}
+                />
+                <span>プライベート - 招待制</span>
+              </label>
+            </div>
+          </div>
+
+          {/* エラーメッセージ */}
+          {createError && (
+            <div style={{
+              backgroundColor: 'var(--danger)',
+              color: 'var(--background0)',
+              padding: '0.5rem',
+              borderRadius: '4px',
+              fontSize: '0.8rem',
+              marginBottom: '0.5rem'
+            }}>
+              {createError}
+            </div>
+          )}
+
           <div is-="row" gap-="1">
             <button
               onClick={handleCreateRoom}
@@ -165,6 +235,8 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
                 setShowCreateForm(false)
                 setNewRoomName('')
                 setNewRoomDescription('')
+                setNewRoomIsPublic(true)
+                setCreateError(null)
               }}
               size-="small"
               variant-="ghost"

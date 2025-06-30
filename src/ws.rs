@@ -417,18 +417,23 @@ async fn handle_websocket_message(
                 return Err(anyhow::anyhow!("Invalid room name"));
             }
 
-            // ルームが存在するかチェック
-            let room_obj = Room::find_by_name(pool, &room)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+            // ルームが存在するかチェック（IDまたは名前で検索）
+            let room_obj = if let Ok(room_uuid) = room.parse::<Uuid>() {
+                // UUIDの場合はIDで検索
+                Room::find_by_id(pool, room_uuid).await?
+            } else {
+                // UUIDでない場合は名前で検索
+                Room::find_by_name(pool, &room).await?
+            }
+            .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
-            // ユーザーがルームのメンバーかチェック
-            if !room_obj.is_member(pool, user.id).await? {
+            // パブリックルームでない場合はメンバーシップをチェック
+            if !room_obj.is_public && !room_obj.is_member(pool, user.id).await? {
                 warn!(
-                    "User {} attempted to join room {} without permission",
+                    "User {} attempted to join private room {} without permission",
                     user.username, room
                 );
-                return Err(anyhow::anyhow!("You are not a member of this room"));
+                return Err(anyhow::anyhow!("You are not a member of this private room"));
             }
 
             // アプリケーション状態にクライアントを追加
@@ -470,14 +475,19 @@ async fn handle_websocket_message(
                 return Err(anyhow::anyhow!("Message content too long"));
             }
 
-            // ルームが存在するかチェック
-            let room_obj = Room::find_by_name(pool, &room)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+            // ルームが存在するかチェック（IDまたは名前で検索）
+            let room_obj = if let Ok(room_uuid) = room.parse::<Uuid>() {
+                // UUIDの場合はIDで検索
+                Room::find_by_id(pool, room_uuid).await?
+            } else {
+                // UUIDでない場合は名前で検索
+                Room::find_by_name(pool, &room).await?
+            }
+            .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
-            // ユーザーがルームのメンバーかチェック
-            if !room_obj.is_member(pool, user.id).await? {
-                return Err(anyhow::anyhow!("You are not a member of this room"));
+            // パブリックルームでない場合はメンバーシップをチェック
+            if !room_obj.is_public && !room_obj.is_member(pool, user.id).await? {
+                return Err(anyhow::anyhow!("You are not a member of this private room"));
             }
 
             // メッセージタイプを変換
@@ -706,4 +716,32 @@ async fn broadcast_to_room(
     } else {
         warn!("Attempted to broadcast to non-existent room: {}", room);
     }
+}
+
+// オンラインユーザー情報を取得
+pub async fn get_online_users_info(app_state: &AppState) -> Vec<(uuid::Uuid, String, Vec<String>, std::time::Instant)> {
+    let state = app_state.read().await;
+    let mut users_map: std::collections::HashMap<uuid::Uuid, (String, Vec<String>, std::time::Instant)> = std::collections::HashMap::new();
+    
+    // 各ルームのクライアントを走査
+    for (room_name, room_clients) in state.iter() {
+        for (user_id, client) in room_clients.iter() {
+            if let Some((username, rooms, connected_at)) = users_map.get_mut(user_id) {
+                // 既存ユーザーにルームを追加
+                rooms.push(room_name.clone());
+            } else {
+                // 新しいユーザーを追加
+                users_map.insert(*user_id, (
+                    client.username.clone(),
+                    vec![room_name.clone()],
+                    client.connected_at
+                ));
+            }
+        }
+    }
+    
+    // Vec形式で返す
+    users_map.into_iter()
+        .map(|(user_id, (username, rooms, connected_at))| (user_id, username, rooms, connected_at))
+        .collect()
 }

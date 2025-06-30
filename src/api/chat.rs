@@ -7,6 +7,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::models::{Message as DbMessage, Room, DbMessageType};
 use crate::api::auth::AuthUser;
@@ -42,6 +44,73 @@ pub struct SendMessageRequest {
     pub message_type: Option<MessageType>,
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct CreateRoomRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub is_public: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct CreateRoomResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_public: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RoomMember {
+    pub user_id: String,
+    pub username: String,
+    pub joined_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RoomMembersResponse {
+    pub members: Vec<RoomMember>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RoomInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_public: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RoomsResponse {
+    pub rooms: Vec<RoomInfo>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct InviteUserRequest {
+    pub username: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct InviteUserResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct OnlineUser {
+    pub user_id: String,
+    pub username: String,
+    pub connected_rooms: Vec<String>,
+    pub connected_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct OnlineUsersResponse {
+    pub users: Vec<OnlineUser>,
+    pub total_count: usize,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct SendMessageResponse {
     pub message_id: String,
@@ -57,8 +126,12 @@ pub struct MessagesResponse {
 
 pub fn router() -> Router<PgPool> {
     Router::new()
+        .route("/rooms", get(get_rooms).post(create_room))
+        .route("/online-users", get(get_online_users))
         .route("/{room}/messages", get(get_messages))
         .route("/{room}/send", post(send_message))
+        .route("/{room}/members", get(get_room_members))
+        .route("/{room}/invite", post(invite_user))
 }
 
 #[utoipa::path(
@@ -162,13 +235,15 @@ async fn send_message(
     let user_id = user.user_id.parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
     
-    // ユーザーがルームのメンバーかチェック
-    let is_member = room.is_member(&pool, user_id)
-        .await
-        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    if !is_member {
-        return Err(axum::http::StatusCode::FORBIDDEN);
+    // パブリックルームでない場合のみメンバーシップをチェック
+    if !room.is_public {
+        let is_member = room.is_member(&pool, user_id)
+            .await
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+        
+        if !is_member {
+            return Err(axum::http::StatusCode::FORBIDDEN);
+        }
     }
     
     // メッセージタイプを変換
@@ -193,5 +268,287 @@ async fn send_message(
     Ok(Json(SendMessageResponse {
         message_id: message.id.to_string(),
         timestamp: message.created_at,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/chat/rooms",
+    request_body = CreateRoomRequest,
+    responses(
+        (status = 200, description = "Room created successfully", body = CreateRoomResponse),
+        (status = 400, description = "Invalid room data"),
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "Room name already exists")
+    ),
+    tag = "Chat",
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+async fn create_room(
+    State(pool): State<PgPool>,
+    user: AuthUser,
+    Json(payload): Json<CreateRoomRequest>,
+) -> Result<Json<CreateRoomResponse>, axum::http::StatusCode> {
+    // バリデーション
+    if payload.name.is_empty() || payload.name.len() > 100 {
+        return Err(axum::http::StatusCode::BAD_REQUEST);
+    }
+    
+    // ユーザーIDをUUIDにパース
+    let user_id = user.user_id.parse::<uuid::Uuid>()
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    
+    // ルーム名の重複チェック
+    if Room::find_by_name(&pool, &payload.name).await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?.is_some() {
+        return Err(axum::http::StatusCode::CONFLICT);
+    }
+    
+    // ルームを作成
+    let room = Room::create(
+        &pool,
+        payload.name.clone(),
+        payload.description.clone(),
+        user_id,
+        payload.is_public,
+    )
+    .await
+    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    // プライベートルームの場合、作成者をメンバーに追加
+    if !payload.is_public {
+        room.add_member(&pool, user_id)
+            .await
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    
+    Ok(Json(CreateRoomResponse {
+        id: room.id.to_string(),
+        name: room.name,
+        description: room.description,
+        is_public: room.is_public,
+        created_at: room.created_at,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/chat/{room}/members",
+    params(
+        ("room" = String, Path, description = "Room ID or name")
+    ),
+    responses(
+        (status = 200, description = "Room members retrieved successfully", body = RoomMembersResponse),
+        (status = 404, description = "Room not found"),
+        (status = 403, description = "Access denied")
+    ),
+    tag = "Chat",
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+async fn get_room_members(
+    Path(room_name): Path<String>,
+    State(pool): State<PgPool>,
+    user: AuthUser,
+) -> Result<Json<RoomMembersResponse>, axum::http::StatusCode> {
+    // ユーザーIDをUUIDにパース
+    let user_id = user.user_id.parse::<uuid::Uuid>()
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    
+    // ルーム名からルームを検索
+    let room = Room::find_by_name(&pool, &room_name)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    
+    // プライベートルームの場合、ユーザーがメンバーかチェック
+    if !room.is_public {
+        let is_member = room.is_member(&pool, user_id)
+            .await
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+        
+        if !is_member {
+            return Err(axum::http::StatusCode::FORBIDDEN);
+        }
+    }
+    
+    // ルームメンバーを取得
+    let members = room.get_members(&pool)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let response_members: Vec<RoomMember> = members.into_iter().map(|member| RoomMember {
+        user_id: member.user_id.to_string(),
+        username: member.username,
+        joined_at: member.joined_at,
+    }).collect();
+    
+    Ok(Json(RoomMembersResponse {
+        members: response_members,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/chat/rooms",
+    responses(
+        (status = 200, description = "Rooms retrieved successfully", body = RoomsResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Chat",
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+async fn get_rooms(
+    State(pool): State<PgPool>,
+    user: AuthUser,
+) -> Result<Json<RoomsResponse>, axum::http::StatusCode> {
+    // ユーザーIDをUUIDにパース
+    let user_id = user.user_id.parse::<uuid::Uuid>()
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    
+    // ユーザーがアクセス可能なルームを取得
+    let rooms = Room::get_accessible_rooms(&pool, user_id)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let response_rooms: Vec<RoomInfo> = rooms.into_iter().map(|room| RoomInfo {
+        id: room.id.to_string(),
+        name: room.name,
+        description: room.description,
+        is_public: room.is_public,
+        created_at: room.created_at,
+    }).collect();
+    
+    Ok(Json(RoomsResponse {
+        rooms: response_rooms,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/chat/{room}/invite",
+    params(
+        ("room" = String, Path, description = "Room name")
+    ),
+    request_body = InviteUserRequest,
+    responses(
+        (status = 200, description = "User invited successfully", body = InviteUserResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Room or user not found"),
+        (status = 409, description = "User is already a member")
+    ),
+    tag = "Chat",
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+async fn invite_user(
+    Path(room_name): Path<String>,
+    State(pool): State<PgPool>,
+    user: AuthUser,
+    Json(payload): Json<InviteUserRequest>,
+) -> Result<Json<InviteUserResponse>, axum::http::StatusCode> {
+    // ユーザーIDをUUIDにパース
+    let user_id = user.user_id.parse::<uuid::Uuid>()
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    
+    // ルームを検索
+    let room = Room::find_by_name(&pool, &room_name)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    
+    // パブリックルームには招待できない
+    if room.is_public {
+        return Ok(Json(InviteUserResponse {
+            success: false,
+            message: "パブリックルームには招待は必要ありません".to_string(),
+        }));
+    }
+    
+    // 現在のユーザーがルームのメンバーかチェック
+    let is_member = room.is_member(&pool, user_id)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    if !is_member {
+        return Err(axum::http::StatusCode::FORBIDDEN);
+    }
+    
+    // 招待対象ユーザーを検索
+    let target_user = crate::models::User::find_by_username(&pool, &payload.username)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or_else(|| axum::http::StatusCode::NOT_FOUND)?;
+    
+    // 既にメンバーかどうかチェック
+    let is_already_member = room.is_member(&pool, target_user.id)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    if is_already_member {
+        return Ok(Json(InviteUserResponse {
+            success: false,
+            message: format!("{}は既にメンバーです", payload.username),
+        }));
+    }
+    
+    // ユーザーをルームに追加
+    room.add_member(&pool, target_user.id)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok(Json(InviteUserResponse {
+        success: true,
+        message: format!("{}をルームに招待しました", payload.username),
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/chat/online-users",
+    responses(
+        (status = 200, description = "Online users retrieved successfully", body = OnlineUsersResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "Chat",
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+async fn get_online_users(
+    State(pool): State<PgPool>,
+    user: AuthUser, // 認証チェック
+) -> Result<Json<OnlineUsersResponse>, axum::http::StatusCode> {
+    // 暫定的にモックデータを返す（実装の概念実証用）
+    // 本来ならWebSocket状態から取得すべき
+    
+    let current_user_id = user.user_id.parse::<uuid::Uuid>()
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    
+    let online_users = vec![
+        OnlineUser {
+            user_id: current_user_id.to_string(),
+            username: user.username.clone(),
+            connected_rooms: vec!["general".to_string(), "random".to_string()],
+            connected_at: chrono::Utc::now() - chrono::Duration::minutes(5),
+        },
+        OnlineUser {
+            user_id: "dummy-user-id".to_string(),
+            username: "demo_user".to_string(),
+            connected_rooms: vec!["general".to_string()],
+            connected_at: chrono::Utc::now() - chrono::Duration::minutes(12),
+        }
+    ];
+    
+    Ok(Json(OnlineUsersResponse {
+        users: online_users,
+        total_count: 2,
     }))
 }

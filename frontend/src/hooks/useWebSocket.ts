@@ -83,6 +83,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break
         case 'error':
           console.error('WebSocket error:', message.message)
+          
+          // 特定のエラーに対してより詳細な処理
+          if (message.message === 'Room not found') {
+            console.warn('Attempted to join non-existent room')
+            // ルームが見つからない場合は、現在のルーム選択をクリア
+            // この処理は親コンポーネントで実装される予定
+          }
+          
           if (onError) {
             onError(new Error(message.message))
           }
@@ -171,6 +179,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       if (currentRoomRef.current) {
         wsService.leaveRoom(currentRoomRef.current)
       }
+      
+      console.log(`Attempting to join room: ${roomId}`)
       wsService.joinRoom(roomId)
       currentRoomRef.current = roomId
     }

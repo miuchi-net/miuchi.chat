@@ -68,4 +68,16 @@ impl User {
         
         Ok(user)
     }
+
+    pub async fn find_by_username(pool: &PgPool, username: &str) -> anyhow::Result<Option<User>> {
+        let user = sqlx::query_as::<_, User>(
+            "SELECT id, github_id, username, email, avatar_url, created_at, updated_at 
+             FROM users WHERE username = $1"
+        )
+        .bind(username)
+        .fetch_optional(pool)
+        .await?;
+        
+        Ok(user)
+    }
 }

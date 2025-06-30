@@ -20,6 +20,7 @@ export interface Room {
     id: string;
     name: string;
     description?: string;
+    is_public?: boolean;
     created_at?: string;
 }
 
@@ -48,6 +49,41 @@ export interface SendMessageRequest {
 export interface SendMessageResponse {
     id: string;
     timestamp: string;
+}
+
+export interface RoomMember {
+    user_id: string;
+    username: string;
+    joined_at: string;
+}
+
+export interface RoomMembersResponse {
+    members: RoomMember[];
+}
+
+export interface RoomsResponse {
+    rooms: Room[];
+}
+
+export interface InviteUserRequest {
+    username: string;
+}
+
+export interface InviteUserResponse {
+    success: boolean;
+    message: string;
+}
+
+export interface OnlineUser {
+    user_id: string;
+    username: string;
+    connected_rooms: string[];
+    connected_at: string;
+}
+
+export interface OnlineUsersResponse {
+    users: OnlineUser[];
+    total_count: number;
 }
 
 // WebSocket message types
