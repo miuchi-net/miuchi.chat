@@ -4,8 +4,8 @@ FROM node:20-alpine
 # Alpine用のビルドツールをインストール
 RUN apk add --no-cache python3 make g++
 
-# pnpmをインストール
-RUN npm install -g pnpm@9.15.1
+# pnpmをインストール（package.jsonで指定されたバージョンに合わせる）
+RUN npm install -g pnpm@8.0.0
 
 # 作業ディレクトリを設定
 WORKDIR /app
