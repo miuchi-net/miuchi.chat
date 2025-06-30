@@ -75,7 +75,15 @@ export default function MessageList({ messages, isLoading = false }: MessageList
   const messageGroups = groupMessagesByDate(messages)
 
   return (
-    <div style={{ flex: 1, overflow: 'auto', padding: '1rem' }}>
+    <div 
+      className="message-list-container"
+      style={{ 
+        flex: 1, 
+        overflow: 'auto', 
+        padding: '1rem',
+        scrollBehavior: 'smooth',
+        minHeight: 0 // Flexboxでスクロールを有効にするために必要
+      }}>
       <div is-="column" gap-="2">
         {messageGroups.map(({ date, messages: dayMessages }) => (
           <div key={date} is-="column" gap-="1">
@@ -118,7 +126,11 @@ export default function MessageList({ messages, isLoading = false }: MessageList
                         fontWeight: 'bold',
                         color: 'var(--foreground0)'
                       }}>
-                        {message.author_name.charAt(0).toUpperCase()}
+                        {/* {message.author_name.charAt(0).toUpperCase()} */}
+                        {message.author_name ?
+                          message.author_name.charAt(0).toUpperCase() :
+                          '?'
+                        }
                       </div>
                     )}
                   </div>

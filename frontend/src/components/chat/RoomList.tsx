@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { FaPlus, FaHashtag, FaLock, FaTimes, FaCheck } from 'react-icons/fa'
 import { api } from '../../services/api'
 import type { Room } from '../../types'
 
@@ -90,12 +91,20 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
   return (
     <div is-="column" gap-="0" style={{ height: '100%' }}>
       {/* ヘッダー */}
-      <div is-="row" align-="between center" pad-="1" style={{ borderBottom: '1px solid var(--background2)' }}>
+      <div style={{ 
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '0.75rem',
+        borderBottom: '1px solid var(--background2)'
+      }}>
         <span style={{ fontWeight: 'bold', fontSize: '0.9rem', fontFamily: 'var(--font-mono)' }}>
           CHANNELS
         </span>
         <button
           onClick={() => setShowCreateForm(true)}
+          is-="button"
           size-="small"
           variant-="ghost"
           style={{
@@ -108,7 +117,7 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
           }}
           title="チャンネル作成"
         >
-          +
+          <FaPlus size={12} />
         </button>
       </div>
 
@@ -133,20 +142,17 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FaHashtag 
+                  size={12} 
+                  style={{ 
+                    color: room.is_public ? 'var(--foreground1)' : 'var(--warning)' 
+                  }} 
+                />
                 <span style={{ fontWeight: 'bold', fontSize: '0.9rem', fontFamily: 'var(--font-mono)' }}>
-                  #{room.name}
+                  {room.name}
                 </span>
                 {room.is_public === false && (
-                  <span style={{ 
-                    fontSize: '0.6rem', 
-                    color: 'var(--foreground2)',
-                    backgroundColor: 'var(--background2)',
-                    padding: '0.1rem 0.3rem',
-                    borderRadius: '2px',
-                    fontFamily: 'var(--font-mono)'
-                  }}>
-                    PRIVATE
-                  </span>
+                  <FaLock size={10} style={{ color: 'var(--warning)' }} />
                 )}
               </div>
             </div>
@@ -223,12 +229,18 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
           <div is-="row" gap-="1">
             <button
               onClick={handleCreateRoom}
+              is-="button"
               size-="small"
               variant-="primary"
               disabled={!newRoomName.trim()}
-              style={{ fontSize: '0.8rem' }}
+              style={{ 
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
             >
-              作成
+              <FaCheck size={10} />
             </button>
             <button
               onClick={() => {
@@ -238,11 +250,17 @@ export default function RoomList({ selectedRoom, onRoomSelect, onRoomCreate }: R
                 setNewRoomIsPublic(true)
                 setCreateError(null)
               }}
+              is-="button"
               size-="small"
               variant-="ghost"
-              style={{ fontSize: '0.8rem' }}
+              style={{ 
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
             >
-              キャンセル
+              <FaTimes size={10} />
             </button>
           </div>
         </div>

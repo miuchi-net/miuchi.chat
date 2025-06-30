@@ -307,13 +307,18 @@ class WebSocketService {
         console.error('WebSocket error:', error)
         this.connectionMetrics.totalErrors++
         
-        if (this.messageHandler) {
-            this.messageHandler({ 
-                type: 'error', 
-                message: 'WebSocket connection failed',
-                code: 1006
-            })
-        }
+        // エラーメッセージを全てのハンドラーに通知
+        this.messageHandlers.forEach(handler => {
+            try {
+                handler({ 
+                    type: 'error', 
+                    message: 'WebSocket connection failed',
+                    code: 1006
+                })
+            } catch (handlerError) {
+                console.error('Error in message handler:', handlerError)
+            }
+        })
     }
     
     private scheduleReconnect() {

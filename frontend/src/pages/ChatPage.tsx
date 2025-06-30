@@ -1,11 +1,12 @@
 import { useState, useCallback } from 'react'
+import { FaUsers, FaLock, FaWifi } from 'react-icons/fa'
 import { useAuth } from '../contexts/AuthContext'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { api } from '../services/api'
 import MessageInput from '../components/chat/MessageInput'
 import MessageList from '../components/chat/MessageList'
 import RoomList from '../components/chat/RoomList'
 import MemberList from '../components/chat/MemberList'
-import OnlineUsersList from '../components/chat/OnlineUsersList'
 import type { Message, Room } from '../types'
 
 export default function ChatPage() {
@@ -20,7 +21,6 @@ export default function ChatPage() {
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoadingMessages, setIsLoadingMessages] = useState(false)
     const [showMemberList, setShowMemberList] = useState(false)
-    const [showOnlineUsers, setShowOnlineUsers] = useState(false)
 
     // useCallbackでコールバック関数を最適化
     const handleMessage = useCallback((message: Message) => {
@@ -75,18 +75,7 @@ export default function ChatPage() {
 
     const handleSendMessage = (content: string) => {
         if (selectedRoom && user) {
-            // Optimistic update
-            const tempMessage: Message = {
-                id: `temp-${Date.now()}`,
-                room_id: selectedRoom.id,
-                author_id: user.id,
-                author_name: user.username,
-                content,
-                created_at: new Date().toISOString()
-            }
-            setMessages(prev => [...prev, tempMessage])
-            
-            // Send via WebSocket
+            // WebSocketで送信（楽観的更新は削除してサーバーからの応答を待つ）
             wsSendMessage(content)
         }
     }
@@ -106,39 +95,8 @@ export default function ChatPage() {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)' }}>
-            {/* トップバー */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                padding: '0.5rem 1rem',
-                borderBottom: '1px solid var(--background2)',
-                backgroundColor: 'var(--background1)',
-                minHeight: '3rem'
-            }}>
-                <button
-                    onClick={() => setShowOnlineUsers(true)}
-                    style={{
-                        fontSize: '0.8rem',
-                        padding: '0.4rem 0.8rem',
-                        backgroundColor: 'transparent',
-                        color: 'var(--foreground1)',
-                        border: '1px solid var(--background2)',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontFamily: 'var(--font-mono)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                    }}
-                >
-                    <span style={{ color: 'var(--success)' }}>●</span>
-                    オンライン
-                </button>
-            </div>
-
             {/* メインエリア */}
-            <div style={{ display: 'flex', flex: 1 }}>
+            <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
                 {/* サイドバー */}
                 <div style={{ 
                     width: '280px', 
@@ -156,7 +114,7 @@ export default function ChatPage() {
                 </div>
 
             {/* メインチャット */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {selectedRoom ? (
                     <>
                         {/* ヘッダー */}
@@ -166,87 +124,75 @@ export default function ChatPage() {
                             padding: '0.5rem 1rem',
                             minHeight: '3rem'
                         }}>
-                            <div is-="column" gap-="0">
-                                <div is-="row" gap-="2" align-="center">
-                                    <div style={{ 
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.5rem'
+                            {/* 左側: チャンネル情報と説明 */}
+                            <div is-="row" align-="center" gap-="2" style={{ flex: 1, minWidth: 0 }}>
+                                <div is-="row" align-="center" gap-="0.5">
+                                    <span style={{ 
+                                        fontWeight: 'bold', 
+                                        fontSize: '1rem',
+                                        fontFamily: 'var(--font-mono)'
                                     }}>
-                                        <span style={{ 
-                                            fontWeight: 'bold', 
-                                            fontSize: '1rem',
-                                            fontFamily: 'var(--font-mono)'
-                                        }}>
-                                            #{selectedRoom.name}
-                                        </span>
-                                        {selectedRoom.is_public === false && (
-                                            <span style={{ 
-                                                fontSize: '0.6rem', 
-                                                color: 'var(--foreground2)',
-                                                backgroundColor: 'var(--background2)',
-                                                padding: '0.1rem 0.3rem',
-                                                borderRadius: '2px',
-                                                fontFamily: 'var(--font-mono)'
-                                            }}>
-                                                PRIVATE
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                        <span style={{
-                                            fontSize: '0.7rem',
-                                            color: connectionStatus === 'connected' ? 'var(--success)' : 'var(--warning)',
-                                            fontFamily: 'var(--font-mono)'
-                                        }}>
-                                            {connectionStatus === 'connected' ? '● 接続済み' : 
-                                             connectionStatus === 'connecting' ? '○ 接続中...' : '○ 未接続'}
-                                        </span>
-                                        {selectedRoom.is_public === false && (
-                                            <button
-                                                onClick={() => setShowMemberList(true)}
-                                                style={{
-                                                    fontSize: '0.7rem',
-                                                    padding: '0.2rem 0.5rem',
-                                                    backgroundColor: 'transparent',
-                                                    color: 'var(--foreground1)',
-                                                    border: '1px solid var(--background2)',
-                                                    borderRadius: '3px',
-                                                    cursor: 'pointer',
-                                                    fontFamily: 'var(--font-mono)'
-                                                }}
-                                            >
-                                                メンバー
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                                <div is-="column" gap-="0.25">
-                                    {selectedRoom.description && (
-                                        <span style={{ 
-                                            fontSize: '0.8rem', 
-                                            color: 'var(--foreground1)'
-                                        }}>
-                                            {selectedRoom.description}
-                                        </span>
+                                        #{selectedRoom.name}
+                                    </span>
+                                    {selectedRoom.is_public === false && (
+                                        <FaLock 
+                                            size={12} 
+                                            style={{ color: 'var(--warning)' }}
+                                            title="Private Channel"
+                                        />
                                     )}
-                                    <span style={{ 
-                                        fontSize: '0.7rem', 
-                                        color: 'var(--foreground2)',
-                                        fontFamily: 'var(--font-mono)'
-                                    }}>
-                                        {selectedRoom.is_public === false ? 'Private Channel' : 'Public Channel'}
-                                    </span>
                                 </div>
-
-                                {selectedRoom.created_at && (
+                                
+                                {selectedRoom.description && (
                                     <span style={{ 
-                                        fontSize: '0.7rem', 
-                                        color: 'var(--foreground2)',
-                                        fontFamily: 'var(--font-mono)'
+                                        fontSize: '0.8rem', 
+                                        color: 'var(--foreground1)',
+                                        maxWidth: '300px',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
                                     }}>
-                                        Created at: {new Date(selectedRoom.created_at).toLocaleDateString()} {new Date(selectedRoom.created_at).toLocaleTimeString()}
+                                        — {selectedRoom.description}
                                     </span>
+                                )}
+                            </div>
+
+                            {/* 右側: 接続状態とメンバーボタン */}
+                            <div is-="row" align-="center" gap-="1">
+                                {connectionStatus === 'connected' ? (
+                                    <FaWifi 
+                                        size={12} 
+                                        style={{ color: 'var(--success)' }}
+                                        title="Connected"
+                                    />
+                                ) : (
+                                    <span 
+                                        style={{ 
+                                            fontSize: '12px',
+                                            color: 'var(--warning)'
+                                        }}
+                                        title={connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
+                                    >
+                                        ⚠
+                                    </span>
+                                )}
+                                
+                                {selectedRoom.is_public === false && (
+                                    <button
+                                        onClick={() => setShowMemberList(true)}
+                                        is-="button"
+                                        size-="small"
+                                        variant-="background2"
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            fontSize: '0.7rem'
+                                        }}
+                                        title="メンバー"
+                                    >
+                                        <FaUsers size={10} />
+                                    </button>
                                 )}
                             </div>
                         </div>
@@ -279,12 +225,6 @@ export default function ChatPage() {
                     room={selectedRoom}
                     isVisible={showMemberList}
                     onClose={() => setShowMemberList(false)}
-                />
-
-                {/* オンラインユーザー一覧モーダル */}
-                <OnlineUsersList
-                    isVisible={showOnlineUsers}
-                    onClose={() => setShowOnlineUsers(false)}
                 />
             </div>
         </div>

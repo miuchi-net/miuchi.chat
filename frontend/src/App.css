@@ -5,3 +5,43 @@
     display: flex;
     flex-direction: column;
 }
+
+/* スクロールバーのカスタマイズ */
+/* Webkit ベースのブラウザ (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--background1);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--background2);
+    border-radius: 4px;
+    border: 1px solid var(--background1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--foreground2);
+}
+
+/* Firefox */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--background2) var(--background1);
+}
+
+/* スクロールバーを完全に非表示にしたい場合は以下を有効化 */
+/*
+.message-list-container {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* Internet Explorer 10+ */
+}
+
+.message-list-container::-webkit-scrollbar {
+    display: none; /* Webkit */
+}
+*/

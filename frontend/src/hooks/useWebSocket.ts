@@ -62,7 +62,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           console.log('Successfully joined room:', message.room)
           break
         case 'message':
-          if (onMessage) {
+          if (onMessageRef.current) {
             // Convert WS message to Message format
             const msg: Message = {
               id: message.id,
@@ -70,10 +70,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               author_id: message.user_id,
               author_name: message.username,
               content: message.content,
-              message_type: message.message_type as any,
+              message_type: message.message_type as 'text' | 'image' | 'file' | 'system',
               created_at: message.timestamp
             }
-            onMessage(msg)
+            onMessageRef.current(msg)
           }
           break
         case 'user_joined':
@@ -91,16 +91,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             // この処理は親コンポーネントで実装される予定
           }
           
-          if (onError) {
-            onError(new Error(message.message))
+          if (onErrorRef.current) {
+            onErrorRef.current(new Error(message.message))
           }
           break
         case 'auth_required':
           console.warn('WebSocket authentication required')
           if (isActive) {
             setConnectionStatus('failed')
-            if (onError) {
-              onError(new Error('Authentication required'))
+            if (onErrorRef.current) {
+              onErrorRef.current(new Error('Authentication required'))
             }
           }
           break
@@ -141,38 +141,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
   }, []) // 依存関係を空配列にしてマウント時のみ実行
 
-  // onMessage, onErrorのハンドラーを登録（依存関係の変更があっても再接続しない）
+  // ハンドラーの更新をrefで管理（重複登録を避ける）
+  const onMessageRef = useRef(onMessage)
+  const onErrorRef = useRef(onError)
+  
   useEffect(() => {
-    const handleMessage = (message: WsMessage) => {
-      switch (message.type) {
-        case 'message':
-          if (onMessage) {
-            const msg: Message = {
-              id: message.id,
-              room_id: message.room,
-              author_id: message.user_id,
-              author_name: message.username,
-              content: message.content,
-              message_type: message.message_type as any,
-              created_at: message.timestamp
-            }
-            onMessage(msg)
-          }
-          break
-        case 'error':
-          if (onError) {
-            onError(new Error(message.message))
-          }
-          break
-      }
-    }
-
-    const unsubscribeCallback = wsService.onMessage(handleMessage)
-    
-    return () => {
-      unsubscribeCallback() // ハンドラーの登録解除
-    }
-  }, [onMessage, onError]) // コールバックが変更された時のみ再登録
+    onMessageRef.current = onMessage
+    onErrorRef.current = onError
+  }, [onMessage, onError])
 
   useEffect(() => {
     if (roomId && connectionStatus === 'connected' && currentRoomRef.current !== roomId) {

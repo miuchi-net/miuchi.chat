@@ -41,12 +41,12 @@ export default function MessageInput({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       if (e.shiftKey) {
-        // Shift+Enter で改行
-        return
-      } else {
-        // Enter で送信
+        // Shift+Enter で送信
         e.preventDefault()
         handleSend()
+      } else {
+        // Enter で改行（デフォルト動作をそのまま使用）
+        return
       }
     }
   }
@@ -93,7 +93,7 @@ export default function MessageInput({
           fontFamily: 'var(--font-mono)'
         }}>
           {message.length > 0 && (
-            <span>Enter: 送信 | Shift+Enter: 改行</span>
+            <span>Shift+Enter: 送信 | Enter: 改行</span>
           )}
         </div>
       </div>

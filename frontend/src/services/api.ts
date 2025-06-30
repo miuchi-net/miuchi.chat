@@ -23,10 +23,38 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
-            localStorage.removeItem('token')
-            window.location.href = '/login'
+        // ネットワークエラーの処理
+        if (!error.response) {
+            console.error('Network error:', error.message)
+            return Promise.reject({
+                ...error,
+                message: 'ネットワークエラーが発生しました。接続を確認してください。'
+            })
         }
+
+        // HTTPステータスエラーの処理
+        switch (error.response.status) {
+            case 401:
+                console.warn('Authentication failed, redirecting to login')
+                localStorage.removeItem('token')
+                window.location.href = '/login'
+                break
+            case 403:
+                console.warn('Access forbidden')
+                break
+            case 404:
+                console.warn('Resource not found')
+                break
+            case 429:
+                console.warn('Rate limit exceeded')
+                break
+            case 500:
+                console.error('Internal server error')
+                break
+            default:
+                console.error('HTTP error:', error.response.status, error.response.data)
+        }
+        
         return Promise.reject(error)
     }
 )
