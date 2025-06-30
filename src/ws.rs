@@ -114,6 +114,9 @@ impl Clone for ConnectedClient {
 // 全体の状態管理
 pub type AppState = Arc<RwLock<HashMap<String, HashMap<Uuid, ConnectedClient>>>>;
 
+// ユーザーベースの接続管理を追加
+pub type UserConnections = Arc<RwLock<HashMap<Uuid, usize>>>;
+
 #[derive(Deserialize)]
 pub struct WsQuery {
     token: Option<String>,
@@ -371,9 +374,8 @@ async fn websocket_connection(socket: WebSocket, user: User, pool: PgPool, app_s
                     "Received ping from client {}, sending pong",
                     username_for_handler
                 );
-                // Pongレスポンスは別の方法で送信する必要がある
-                // 現在の実装では送信側が別タスクに移されているため
-                debug!("Received ping but cannot send pong in current implementation");
+                // Pongを送信
+                let _ = tx.send(WsMessage::Pong { timestamp: None });
             }
             Err(e) => {
                 warn!("WebSocket error for user {}: {}", username_for_handler, e);
@@ -585,19 +587,21 @@ async fn verify_jwt_token(token: &str, pool: &PgPool) -> anyhow::Result<User> {
     Ok(user)
 }
 
-// 接続数制限をチェック
+// 接続数制限をチェック（最適化版）
 async fn check_connection_limit(user_id: Uuid, app_state: &AppState) -> anyhow::Result<()> {
     let state = app_state.read().await;
     let mut connection_count = 0;
 
+    // より効率的な検索: 全ルームを走査してユーザーの存在をチェック
+    // 将来的にはユーザー別インデックスを実装予定
     for room_clients in state.values() {
         if room_clients.contains_key(&user_id) {
             connection_count += 1;
+            // 早期終了: 制限を超えた時点で処理を停止
+            if connection_count >= MAX_CONNECTIONS_PER_USER {
+                return Err(anyhow::anyhow!("Maximum connections exceeded"));
+            }
         }
-    }
-
-    if connection_count >= MAX_CONNECTIONS_PER_USER {
-        return Err(anyhow::anyhow!("Maximum connections exceeded"));
     }
 
     Ok(())
