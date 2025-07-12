@@ -1,0 +1,296 @@
+name: Quality Gates
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Code Quality Checks
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8.0.0
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Cache pnpm dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.pnpm-store
+        key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+
+    # Rust Quality Checks
+    - name: Check Rust code formatting
+      run: |
+        if ! cargo fmt --all -- --check; then
+          echo "❌ Rust code formatting failed"
+          echo "Run 'cargo fmt' to fix formatting issues"
+          exit 1
+        fi
+        echo "✅ Rust code formatting passed"
+
+    - name: Run Rust Clippy linting
+      run: |
+        if ! cargo clippy --all-targets --all-features -- -D warnings; then
+          echo "❌ Rust Clippy linting failed"
+          echo "Fix clippy warnings and try again"
+          exit 1
+        fi
+        echo "✅ Rust Clippy linting passed"
+
+    - name: Check for unused Rust dependencies
+      run: |
+        cargo install cargo-machete --quiet
+        if ! cargo machete; then
+          echo "❌ Unused dependencies detected"
+          echo "Remove unused dependencies and try again"
+          exit 1
+        fi
+        echo "✅ No unused dependencies found"
+
+    # Frontend Quality Checks
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: pnpm install
+
+    - name: TypeScript type checking
+      working-directory: ./frontend
+      run: |
+        if ! pnpm exec tsc --noEmit; then
+          echo "❌ TypeScript type checking failed"
+          echo "Fix type errors and try again"
+          exit 1
+        fi
+        echo "✅ TypeScript type checking passed"
+
+    - name: ESLint code quality check
+      working-directory: ./frontend
+      run: |
+        if ! pnpm run lint; then
+          echo "❌ ESLint check failed"
+          echo "Fix linting errors and try again"
+          exit 1
+        fi
+        echo "✅ ESLint check passed"
+
+    # Test Coverage Requirements
+    - name: Run Rust tests with coverage
+      run: |
+        cargo install cargo-tarpaulin --quiet
+        cargo tarpaulin --out xml --output-dir ./coverage --timeout 120
+        
+        # Check coverage threshold (80%)
+        coverage=$(grep -oP 'line-rate="\K[^"]*' coverage/cobertura.xml | head -1)
+        coverage_percent=$(echo "$coverage * 100" | bc -l | cut -d. -f1)
+        
+        if [ "$coverage_percent" -lt "80" ]; then
+          echo "❌ Test coverage too low: ${coverage_percent}% (minimum: 80%)"
+          exit 1
+        fi
+        echo "✅ Test coverage passed: ${coverage_percent}%"
+
+    - name: Run frontend tests with coverage
+      working-directory: ./frontend
+      run: |
+        pnpm run test:coverage
+        
+        # Check frontend coverage threshold (75%)
+        coverage_percent=$(grep -oP '"lines":{"pct":\K[^,}]*' coverage/coverage-summary.json)
+        
+        if (( $(echo "$coverage_percent < 75" | bc -l) )); then
+          echo "❌ Frontend test coverage too low: ${coverage_percent}% (minimum: 75%)"
+          exit 1
+        fi
+        echo "✅ Frontend test coverage passed: ${coverage_percent}%"
+
+  # Performance Checks
+  performance-check:
+    name: Performance Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8.0.0
+
+    - name: Build optimized Rust binary
+      run: |
+        cargo build --release
+        
+        # Check binary size (should be < 50MB)
+        size=$(du -m target/release/miuchi-chat | cut -f1)
+        if [ "$size" -gt "50" ]; then
+          echo "❌ Binary size too large: ${size}MB (maximum: 50MB)"
+          exit 1
+        fi
+        echo "✅ Binary size check passed: ${size}MB"
+
+    - name: Build frontend with size analysis
+      working-directory: ./frontend
+      run: |
+        pnpm install
+        pnpm run build
+        
+        # Check bundle size (should be < 10MB)
+        size=$(du -m dist | cut -f1)
+        if [ "$size" -gt "10" ]; then
+          echo "❌ Frontend bundle too large: ${size}MB (maximum: 10MB)"
+          exit 1
+        fi
+        echo "✅ Frontend bundle size check passed: ${size}MB"
+
+    - name: Analyze bundle composition
+      working-directory: ./frontend
+      run: |
+        # Install bundle analyzer
+        pnpm add --save-dev rollup-plugin-visualizer
+        
+        # Generate bundle analysis
+        echo "📊 Bundle composition analysis:"
+        ls -lh dist/assets/
+
+  # Documentation Checks
+  documentation-check:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check README exists
+      run: |
+        if [ ! -f "README.md" ]; then
+          echo "❌ README.md not found"
+          exit 1
+        fi
+        echo "✅ README.md exists"
+
+    - name: Check API documentation
+      run: |
+        if [ ! -f "devdocs/api-specification.md" ]; then
+          echo "❌ API specification not found"
+          exit 1
+        fi
+        echo "✅ API documentation exists"
+
+    - name: Check Rust documentation
+      run: |
+        if ! cargo doc --no-deps --quiet; then
+          echo "❌ Rust documentation generation failed"
+          exit 1
+        fi
+        echo "✅ Rust documentation generated successfully"
+
+    - name: Verify CLAUDE.md is up to date
+      run: |
+        if [ ! -f "CLAUDE.md" ]; then
+          echo "❌ CLAUDE.md not found"
+          exit 1
+        fi
+        echo "✅ CLAUDE.md exists"
+
+  # Commit Message Quality
+  commit-quality:
+    name: Commit Quality Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check commit messages
+      run: |
+        # Get all commits in this PR
+        commits=$(git rev-list --no-merges origin/main..HEAD)
+        
+        for commit in $commits; do
+          message=$(git log --format=%B -n 1 $commit)
+          
+          # Check if commit message starts with conventional commit format
+          if ! echo "$message" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|perf|ci|build)(\(.+\))?: .+"; then
+            echo "❌ Invalid commit message format: $commit"
+            echo "Expected format: type(scope): description"
+            echo "Actual message: $message"
+            echo ""
+            echo "Valid types: feat, fix, docs, style, refactor, test, chore, perf, ci, build"
+            exit 1
+          fi
+        done
+        
+        echo "✅ All commit messages follow conventional commit format"
+
+  # Quality Gate Summary
+  quality-summary:
+    name: Quality Gate Summary
+    runs-on: ubuntu-latest
+    needs: [code-quality, performance-check, documentation-check]
+    if: always()
+    
+    steps:
+    - name: Quality gate summary
+      run: |
+        echo "## 🎯 Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.code-quality.result }}" == "success" ]; then
+          echo "✅ **Code Quality**: Passed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Code Quality**: Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.performance-check.result }}" == "success" ]; then
+          echo "✅ **Performance**: Passed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Performance**: Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.documentation-check.result }}" == "success" ]; then
+          echo "✅ **Documentation**: Passed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Documentation**: Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📊 **Overall Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

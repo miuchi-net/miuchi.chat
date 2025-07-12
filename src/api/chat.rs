@@ -35,7 +35,7 @@ pub enum MessageType {
 #[derive(Deserialize, IntoParams)]
 pub struct MessagesQuery {
     pub limit: Option<u32>,
-    pub from: Option<String>,
+    pub before: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -138,8 +138,9 @@ pub fn router() -> Router<(PgPool, crate::ws::AppState, MeilisearchClient)> {
     get,
     path = "/chat/{room}/messages",
     params(
-        ("room" = String, Path, description = "Room ID"),
-        MessagesQuery
+        ("room" = String, Path, description = "Room name"),
+        ("limit" = Option<u32>, Query, description = "Number of messages to retrieve (default: 50, max: 100)"),
+        ("before" = Option<String>, Query, description = "Message ID to fetch messages before (pagination)")
     ),
     responses(
         (status = 200, description = "Messages retrieved successfully", body = MessagesResponse),
@@ -161,9 +162,9 @@ async fn get_messages(
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
     
-    // フロムパラメータをUUIDにパース
-    let before_id = if let Some(from_str) = &params.from {
-        Some(from_str.parse::<uuid::Uuid>()
+    // beforeパラメータをUUIDにパース
+    let before_id = if let Some(before_str) = &params.before {
+        Some(before_str.parse::<uuid::Uuid>()
             .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?)
     } else {
         None

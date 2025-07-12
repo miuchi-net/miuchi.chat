@@ -77,14 +77,14 @@ export const api = {
     },
 
     // Chat endpoints
-    getMessages: async (room: string, limit?: number, from?: string) => {
+    getMessages: async (room: string, limit?: number, before?: string) => {
         const params = new URLSearchParams()
         if (limit) params.append('limit', limit.toString())
-        if (from) params.append('from', from)
+        if (before) params.append('before', before)
 
         const url = `/chat/${room}/messages?${params}`
         console.log('🌐 API Request:', url)
-        console.log('📊 Request params:', { room, limit, from })
+        console.log('📊 Request params:', { room, limit, before })
         
         const response = await apiClient.get(url)
         console.log('🌐 API Response status:', response.status)

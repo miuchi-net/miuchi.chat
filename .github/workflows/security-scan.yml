@@ -1,0 +1,417 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Rust Security Audit
+  rust-security:
+    name: Rust Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run Rust security audit
+      run: |
+        cargo audit --format json > audit-results.json || true
+        cargo audit --format human > audit-human.txt || true
+        
+        # Check if there are any vulnerabilities
+        vuln_count=$(jq '.vulnerabilities.count' audit-results.json 2>/dev/null || echo "0")
+        
+        echo "## 🛡️ Rust Security Audit Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "$vuln_count" -eq "0" ]; then
+          echo "✅ **No security vulnerabilities found**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Found $vuln_count security vulnerabilities**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Vulnerability Details:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat audit-human.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Upload audit results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: rust-security-audit
+        path: |
+          audit-results.json
+          audit-human.txt
+        retention-days: 30
+
+    - name: Create security issue
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const auditResults = fs.readFileSync('audit-human.txt', 'utf8');
+          
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 Security vulnerabilities detected in Rust dependencies',
+            body: `## Security Audit Results
+          
+          Security vulnerabilities have been detected in the Rust dependencies.
+          
+          ### Audit Output:
+          \`\`\`
+          ${auditResults}
+          \`\`\`
+          
+          ### Action Required:
+          - Review the vulnerabilities listed above
+          - Update affected dependencies to secure versions
+          - If no updates are available, consider alternative dependencies
+          - Document any accepted risks with justification
+          
+          This issue was automatically created by the security scanning workflow.`,
+            labels: ['security', 'bug', 'high-priority']
+          });
+
+  # Frontend Security Audit
+  frontend-security:
+    name: Frontend Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8.0.0
+
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: pnpm install
+
+    - name: Run npm audit
+      working-directory: ./frontend
+      run: |
+        pnpm audit --audit-level moderate --json > ../npm-audit.json || true
+        pnpm audit --audit-level moderate > ../npm-audit.txt || true
+        
+        # Check audit results
+        if pnpm audit --audit-level high; then
+          echo "✅ No high-severity vulnerabilities found" > ../audit-status.txt
+        else
+          echo "⚠️ High-severity vulnerabilities detected" > ../audit-status.txt
+        fi
+
+    - name: Generate frontend security summary
+      run: |
+        echo "## 🔒 Frontend Security Audit Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if grep -q "✅" audit-status.txt; then
+          echo "✅ **No high-severity vulnerabilities found**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **High-severity vulnerabilities detected**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Audit Details:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          head -50 npm-audit.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Upload frontend audit results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: frontend-security-audit
+        path: |
+          npm-audit.json
+          npm-audit.txt
+          audit-status.txt
+        retention-days: 30
+
+  # Container Security Scanning
+  container-security:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build Docker images for scanning
+      run: |
+        docker build -t miuchi-chat:test .
+        docker build -t miuchi-chat-frontend:test ./frontend
+
+    - name: Run Trivy vulnerability scanner on backend
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'miuchi-chat:test'
+        format: 'sarif'
+        output: 'trivy-backend.sarif'
+
+    - name: Run Trivy vulnerability scanner on frontend
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'miuchi-chat-frontend:test'
+        format: 'sarif'
+        output: 'trivy-frontend.sarif'
+
+    - name: Upload backend Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-backend.sarif'
+        category: 'backend-container'
+
+    - name: Upload frontend Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-frontend.sarif'
+        category: 'frontend-container'
+
+    - name: Generate container security summary
+      run: |
+        # Convert SARIF to human-readable format for summary
+        backend_vulns=$(jq '.runs[0].results | length' trivy-backend.sarif 2>/dev/null || echo "0")
+        frontend_vulns=$(jq '.runs[0].results | length' trivy-frontend.sarif 2>/dev/null || echo "0")
+        
+        echo "## 🐳 Container Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Vulnerabilities |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|-----------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Backend Container | $backend_vulns |" >> $GITHUB_STEP_SUMMARY
+        echo "| Frontend Container | $frontend_vulns |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "$backend_vulns" -eq "0" ] && [ "$frontend_vulns" -eq "0" ]; then
+          echo "✅ **No container vulnerabilities detected**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Container vulnerabilities detected - check Security tab for details**" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  # Code Quality Security Analysis
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript', 'rust' ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        # Build mode for compiled languages
+        build-mode: ${{ matrix.language == 'rust' && 'manual' || 'none' }}
+
+    - name: Build Rust project (if applicable)
+      if: matrix.language == 'rust'
+      run: |
+        cargo build --release
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+
+  # Secrets Detection
+  secrets-detection:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Run TruffleHog OSS
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+
+    - name: Generate secrets detection summary
+      if: always()
+      run: |
+        echo "## 🔐 Secrets Detection Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ **Secrets scan completed**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Note: Any detected secrets will be reported in the workflow logs." >> $GITHUB_STEP_SUMMARY
+        echo "Review the TruffleHog output above for potential security issues." >> $GITHUB_STEP_SUMMARY
+
+  # License Compliance Check
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8.0.0
+
+    - name: Install license checker tools
+      run: |
+        cargo install cargo-license
+
+    - name: Check Rust licenses
+      run: |
+        cargo license --json > rust-licenses.json
+        cargo license > rust-licenses.txt
+        
+        # Check for problematic licenses
+        if grep -iE "(gpl|agpl|copyleft)" rust-licenses.txt; then
+          echo "⚠️ Potential license issues detected in Rust dependencies" > license-issues.txt
+        else
+          echo "✅ No license issues detected in Rust dependencies" > license-issues.txt
+        fi
+
+    - name: Check frontend licenses
+      working-directory: ./frontend
+      run: |
+        pnpm install
+        pnpm dlx license-checker --json > ../frontend-licenses.json
+        pnpm dlx license-checker > ../frontend-licenses.txt
+        
+        # Check for problematic licenses
+        if grep -iE "(gpl|agpl|copyleft)" ../frontend-licenses.txt; then
+          echo "⚠️ Potential license issues detected in frontend dependencies" >> ../license-issues.txt
+        else
+          echo "✅ No license issues detected in frontend dependencies" >> ../license-issues.txt
+        fi
+
+    - name: Generate license compliance summary
+      run: |
+        echo "## ⚖️ License Compliance Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        cat license-issues.txt >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### License Summary:" >> $GITHUB_STEP_SUMMARY
+        echo "- Review the uploaded license reports for detailed information" >> $GITHUB_STEP_SUMMARY
+        echo "- Ensure all dependencies comply with your project's license policy" >> $GITHUB_STEP_SUMMARY
+        echo "- Consider alternatives for any problematic licenses" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload license reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: license-reports
+        path: |
+          rust-licenses.json
+          rust-licenses.txt
+          frontend-licenses.json
+          frontend-licenses.txt
+          license-issues.txt
+        retention-days: 30
+
+  # Security Summary
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [rust-security, frontend-security, container-security, codeql-analysis, secrets-detection, license-check]
+    if: always()
+    
+    steps:
+    - name: Generate security summary
+      run: |
+        echo "## 🛡️ Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Check | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------------|--------|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.rust-security.result }}" == "success" ]; then
+          echo "| Rust Dependencies | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Rust Dependencies | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.frontend-security.result }}" == "success" ]; then
+          echo "| Frontend Dependencies | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Frontend Dependencies | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.container-security.result }}" == "success" ]; then
+          echo "| Container Security | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Container Security | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.codeql-analysis.result }}" == "success" ]; then
+          echo "| Code Analysis | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Code Analysis | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.secrets-detection.result }}" == "success" ]; then
+          echo "| Secrets Detection | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Secrets Detection | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.license-check.result }}" == "success" ]; then
+          echo "| License Compliance | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| License Compliance | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "- Review any failed security checks" >> $GITHUB_STEP_SUMMARY
+        echo "- Check the Security tab for detailed vulnerability reports" >> $GITHUB_STEP_SUMMARY
+        echo "- Update dependencies to address security issues" >> $GITHUB_STEP_SUMMARY
+        echo "- Consider implementing additional security measures if needed" >> $GITHUB_STEP_SUMMARY

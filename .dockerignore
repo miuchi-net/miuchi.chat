@@ -1,0 +1,44 @@
+# Git files
+.git/
+.gitignore
+
+# Documentation
+*.md
+docs/
+devdocs/
+
+# Development files
+.env*
+.claude/
+Lunir/
+
+# Rust development
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Frontend development
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Test files
+test/
+
+# Temporary files
+*.tmp
+*.temp

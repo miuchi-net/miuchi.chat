@@ -1,0 +1,411 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build and Push Images
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      backend-image: ${{ steps.meta-backend.outputs.tags }}
+      frontend-image: ${{ steps.meta-frontend.outputs.tags }}
+      version: ${{ steps.meta-backend.outputs.version }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Backend Image
+    - name: Extract backend metadata
+      id: meta-backend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push backend image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta-backend.outputs.tags }}
+        labels: ${{ steps.meta-backend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    # Frontend Image
+    - name: Extract frontend metadata
+      id: meta-frontend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push frontend image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: ${{ steps.meta-frontend.outputs.tags }}
+        labels: ${{ steps.meta-frontend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+  # Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup staging environment variables
+      run: |
+        cat > .env.staging << EOF
+        # Database Configuration
+        POSTGRES_USER=miuchichat_staging
+        POSTGRES_PASSWORD=${{ secrets.STAGING_POSTGRES_PASSWORD }}
+        POSTGRES_DB=miuchichat_staging
+        
+        # Application Configuration
+        DATABASE_URL=postgres://miuchichat_staging:${{ secrets.STAGING_POSTGRES_PASSWORD }}@postgres:5432/miuchichat_staging
+        GITHUB_CLIENT_ID=${{ secrets.STAGING_GITHUB_CLIENT_ID }}
+        GITHUB_CLIENT_SECRET=${{ secrets.STAGING_GITHUB_CLIENT_SECRET }}
+        JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }}
+        RUST_LOG=info
+        
+        # Meilisearch Configuration
+        MEILISEARCH_API_KEY=${{ secrets.STAGING_MEILISEARCH_API_KEY }}
+        
+        # Docker Configuration
+        GITHUB_REPOSITORY=${{ github.repository }}
+        EOF
+
+    - name: Deploy to staging server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.STAGING_HOST }}
+        username: ${{ secrets.STAGING_USER }}
+        key: ${{ secrets.STAGING_SSH_KEY }}
+        port: ${{ secrets.STAGING_PORT || 22 }}
+        script: |
+          # Navigate to deployment directory
+          cd /opt/miuchi-chat || { echo "Deployment directory not found"; exit 1; }
+          
+          # Pull latest configuration
+          git pull origin main
+          
+          # Update environment file
+          cp .env.staging .env
+          
+          # Pull latest images
+          docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+          docker-compose -f docker-compose.prod.yml pull
+          
+          # Deploy with zero-downtime
+          docker-compose -f docker-compose.prod.yml up -d --remove-orphans
+          
+          # Health check
+          sleep 30
+          if ! curl -f http://localhost:3001/health; then
+            echo "Health check failed!"
+            docker-compose -f docker-compose.prod.yml logs
+            exit 1
+          fi
+          
+          echo "Staging deployment successful!"
+
+    - name: Run post-deployment tests
+      run: |
+        # Wait for services to be ready
+        sleep 60
+        
+        # Run basic smoke tests against staging
+        curl -f ${{ secrets.STAGING_URL }}/health || exit 1
+        curl -f ${{ secrets.STAGING_URL }}/api/health || exit 1
+        
+        echo "Staging smoke tests passed!"
+
+    - name: Notify deployment status
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const status = '${{ job.status }}';
+          const environment = 'staging';
+          const version = '${{ needs.build-and-push.outputs.version }}';
+          
+          const message = status === 'success' 
+            ? `✅ **Staging Deployment Successful**\n\nVersion: ${version}\nEnvironment: ${environment}\nURL: ${{ secrets.STAGING_URL }}`
+            : `❌ **Staging Deployment Failed**\n\nVersion: ${version}\nEnvironment: ${environment}\nCheck the workflow logs for details.`;
+          
+          github.rest.repos.createCommitComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            commit_sha: context.sha,
+            body: message
+          });
+
+  # Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup production environment variables
+      run: |
+        cat > .env.production << EOF
+        # Database Configuration
+        POSTGRES_USER=miuchichat_prod
+        POSTGRES_PASSWORD=${{ secrets.PROD_POSTGRES_PASSWORD }}
+        POSTGRES_DB=miuchichat_prod
+        
+        # Application Configuration
+        DATABASE_URL=postgres://miuchichat_prod:${{ secrets.PROD_POSTGRES_PASSWORD }}@postgres:5432/miuchichat_prod
+        GITHUB_CLIENT_ID=${{ secrets.PROD_GITHUB_CLIENT_ID }}
+        GITHUB_CLIENT_SECRET=${{ secrets.PROD_GITHUB_CLIENT_SECRET }}
+        JWT_SECRET=${{ secrets.PROD_JWT_SECRET }}
+        RUST_LOG=warn
+        
+        # Meilisearch Configuration
+        MEILISEARCH_API_KEY=${{ secrets.PROD_MEILISEARCH_API_KEY }}
+        
+        # Docker Configuration
+        GITHUB_REPOSITORY=${{ github.repository }}
+        EOF
+
+    - name: Create production backup
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.PROD_HOST }}
+        username: ${{ secrets.PROD_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        port: ${{ secrets.PROD_PORT || 22 }}
+        script: |
+          # Create backup directory with timestamp
+          BACKUP_DIR="/backup/miuchi-chat/$(date +%Y%m%d_%H%M%S)"
+          mkdir -p "$BACKUP_DIR"
+          
+          # Backup database
+          docker exec miuchichat-postgres-prod pg_dump -U miuchichat_prod miuchichat_prod > "$BACKUP_DIR/database.sql"
+          
+          # Backup application data
+          docker exec miuchichat-meilisearch-prod tar czf - /meili_data > "$BACKUP_DIR/meilisearch.tar.gz"
+          
+          echo "Backup created at $BACKUP_DIR"
+
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.PROD_HOST }}
+        username: ${{ secrets.PROD_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        port: ${{ secrets.PROD_PORT || 22 }}
+        script: |
+          # Navigate to deployment directory
+          cd /opt/miuchi-chat || { echo "Deployment directory not found"; exit 1; }
+          
+          # Pull latest configuration
+          git pull origin main
+          
+          # Update environment file
+          cp .env.production .env
+          
+          # Pull latest images
+          docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+          docker-compose -f docker-compose.prod.yml pull
+          
+          # Deploy with rolling update
+          docker-compose -f docker-compose.prod.yml up -d --remove-orphans
+          
+          # Health check with retries
+          for i in {1..10}; do
+            if curl -f http://localhost:3001/health; then
+              echo "Health check passed on attempt $i"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "Health check failed after 10 attempts!"
+              docker-compose -f docker-compose.prod.yml logs
+              exit 1
+            fi
+            echo "Health check attempt $i failed, retrying in 30 seconds..."
+            sleep 30
+          done
+          
+          echo "Production deployment successful!"
+
+    - name: Run production smoke tests
+      run: |
+        # Wait for services to be fully ready
+        sleep 120
+        
+        # Run comprehensive smoke tests
+        curl -f ${{ secrets.PROD_URL }}/health || exit 1
+        curl -f ${{ secrets.PROD_URL }}/api/health || exit 1
+        
+        # Test authentication endpoint
+        response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PROD_URL }}/api/auth/login-url)
+        if [ "$response" != "200" ]; then
+          echo "Authentication endpoint test failed with status: $response"
+          exit 1
+        fi
+        
+        echo "Production smoke tests passed!"
+
+    - name: Update deployment status
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const status = '${{ job.status }}';
+          const version = '${{ needs.build-and-push.outputs.version }}';
+          
+          if (status === 'success') {
+            // Create a release
+            github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: version,
+              name: `Release ${version}`,
+              body: `🚀 **Production Deployment Successful**\n\nVersion: ${version}\nDeployed at: ${new Date().toISOString()}\nURL: ${{ secrets.PROD_URL }}`,
+              draft: false,
+              prerelease: false
+            });
+          }
+          
+          // Create deployment status
+          github.rest.repos.createDeploymentStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: context.payload.deployment?.id || 0,
+            state: status === 'success' ? 'success' : 'failure',
+            description: status === 'success' ? 'Deployment successful' : 'Deployment failed',
+            environment_url: '${{ secrets.PROD_URL }}'
+          });
+
+    - name: Notify team on failure
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 Production deployment failed',
+            body: `## Production Deployment Failure
+          
+          **Version**: ${{ needs.build-and-push.outputs.version }}
+          **Workflow**: ${{ github.workflow }}
+          **Run ID**: ${{ github.run_id }}
+          
+          ### Action Required:
+          - Check the deployment logs immediately
+          - Verify system status at ${{ secrets.PROD_URL }}
+          - Consider rolling back if necessary
+          - Investigate and fix the root cause
+          
+          This issue was automatically created due to production deployment failure.`,
+            labels: ['deployment', 'production', 'critical'],
+            assignees: ['${{ github.actor }}']
+          });
+
+  # Deployment Summary
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+    - name: Generate deployment summary
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Version**: ${{ needs.build-and-push.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "| Environment | Status | URL |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------------|--------|-----|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.deploy-staging.result }}" == "success" ]; then
+          echo "| Staging | ✅ Success | ${{ secrets.STAGING_URL }} |" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.deploy-staging.result }}" == "failure" ]; then
+          echo "| Staging | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Staging | ⏭️ Skipped | - |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.deploy-production.result }}" == "success" ]; then
+          echo "| Production | ✅ Success | ${{ secrets.PROD_URL }} |" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.deploy-production.result }}" == "failure" ]; then
+          echo "| Production | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Production | ⏭️ Skipped | - |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "- Monitor application metrics and logs" >> $GITHUB_STEP_SUMMARY
+        echo "- Verify all features are working correctly" >> $GITHUB_STEP_SUMMARY
+        echo "- Run integration tests if needed" >> $GITHUB_STEP_SUMMARY
+        echo "- Update documentation if there are breaking changes" >> $GITHUB_STEP_SUMMARY

@@ -13,6 +13,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 
 mod api;
+mod error;
 mod models;
 mod ws;
 

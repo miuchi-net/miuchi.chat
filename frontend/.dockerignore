@@ -1,0 +1,40 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+.vite/
+
+# Test coverage
+coverage/
+
+# Environment files
+.env*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Development files
+src/__tests__/
+
+# Lock files (will be recreated)
+package-lock.json
+yarn.lock
+
+# Temporary files
+*.tmp
+*.temp

@@ -44,6 +44,26 @@ pub enum WsMessage {
     #[serde(rename = "ping")]
     Ping { timestamp: Option<u64> },
 
+    // WebRTC シグナリング用
+    #[serde(rename = "webrtc_offer")]
+    WebRtcOffer {
+        room: String,
+        to_user_id: String,
+        offer: serde_json::Value,
+    },
+    #[serde(rename = "webrtc_answer")]
+    WebRtcAnswer {
+        room: String,
+        to_user_id: String,
+        answer: serde_json::Value,
+    },
+    #[serde(rename = "webrtc_ice_candidate")]
+    WebRtcIceCandidate {
+        room: String,
+        to_user_id: String,
+        candidate: serde_json::Value,
+    },
+
     // サーバーからクライアントへ
     #[serde(rename = "room_joined")]
     RoomJoined {
@@ -578,6 +598,22 @@ async fn handle_websocket_message(
             sender.send(WsMessage::Pong { timestamp })?;
         }
 
+        // WebRTC シグナリング処理
+        WsMessage::WebRtcOffer { room, to_user_id, offer } => {
+            info!("WebRTC offer from {} to {} in room {}", user.username, to_user_id, room);
+            relay_webrtc_signal(WsMessage::WebRtcOffer { room, to_user_id, offer }, user.id, app_state).await?;
+        }
+
+        WsMessage::WebRtcAnswer { room, to_user_id, answer } => {
+            info!("WebRTC answer from {} to {} in room {}", user.username, to_user_id, room);
+            relay_webrtc_signal(WsMessage::WebRtcAnswer { room, to_user_id, answer }, user.id, app_state).await?;
+        }
+
+        WsMessage::WebRtcIceCandidate { room, to_user_id, candidate } => {
+            debug!("WebRTC ICE candidate from {} to {} in room {}", user.username, to_user_id, room);
+            relay_webrtc_signal(WsMessage::WebRtcIceCandidate { room, to_user_id, candidate }, user.id, app_state).await?;
+        }
+
         _ => {
             // 予期しないメッセージタイプ
             warn!("Unexpected message type from user {}", user.username);
@@ -773,4 +809,67 @@ pub async fn get_online_users_info(app_state: &AppState) -> Vec<(uuid::Uuid, Str
     users_map.into_iter()
         .map(|(user_id, (username, rooms, connected_at))| (user_id, username, rooms, connected_at))
         .collect()
+}
+
+// WebRTCシグナリングメッセージを特定のユーザーに中継
+async fn relay_webrtc_signal(
+    message: WsMessage,
+    from_user_id: Uuid,
+    app_state: &AppState,
+) -> anyhow::Result<()> {
+    let target_user_id = match &message {
+        WsMessage::WebRtcOffer { to_user_id, .. }
+        | WsMessage::WebRtcAnswer { to_user_id, .. }
+        | WsMessage::WebRtcIceCandidate { to_user_id, .. } => {
+            to_user_id.parse::<Uuid>()
+                .map_err(|_| anyhow::anyhow!("Invalid target user ID"))?
+        }
+        _ => return Err(anyhow::anyhow!("Invalid WebRTC message type")),
+    };
+
+    let state = app_state.read().await;
+    let mut message_sent = false;
+
+    // 対象ユーザーが現在接続している全ルームを検索
+    for room_clients in state.values() {
+        if let Some(target_client) = room_clients.get(&target_user_id) {
+            // メッセージに送信者の情報を追加
+            let enriched_message = match message.clone() {
+                WsMessage::WebRtcOffer { room, offer, .. } => WsMessage::WebRtcOffer {
+                    room,
+                    to_user_id: from_user_id.to_string(),
+                    offer,
+                },
+                WsMessage::WebRtcAnswer { room, answer, .. } => WsMessage::WebRtcAnswer {
+                    room,
+                    to_user_id: from_user_id.to_string(),
+                    answer,
+                },
+                WsMessage::WebRtcIceCandidate { room, candidate, .. } => WsMessage::WebRtcIceCandidate {
+                    room,
+                    to_user_id: from_user_id.to_string(),
+                    candidate,
+                },
+                _ => message.clone(),
+            };
+
+            match target_client.sender.send(enriched_message) {
+                Ok(_) => {
+                    debug!("WebRTC signal relayed to user {}", target_user_id);
+                    message_sent = true;
+                    break; // 1つの接続に送信したら終了
+                }
+                Err(e) => {
+                    warn!("Failed to send WebRTC signal to user {}: {}", target_user_id, e);
+                }
+            }
+        }
+    }
+
+    if !message_sent {
+        warn!("Target user {} not found for WebRTC signal", target_user_id);
+        return Err(anyhow::anyhow!("Target user not found or offline"));
+    }
+
+    Ok(())
 }

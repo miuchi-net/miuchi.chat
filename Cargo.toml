@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "A Rust-based chat and voice call application"
 
+[lib]
+name = "miuchi_chat"
+path = "src/lib.rs"
+
 [dependencies]
 # Web framework
 axum = { version = "0.8", features = ["macros", "ws"] }
@@ -33,6 +37,7 @@ serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
+thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1"
@@ -49,3 +54,9 @@ reqwest = { version = "0.12", features = ["json"] }
 
 # Search engine
 meilisearch-sdk = "0.27"
+
+[dev-dependencies]
+tokio-test = "0.4"
+testcontainers = "0.15"
+hyper = { version = "1.0", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }

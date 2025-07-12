@@ -1,0 +1,303 @@
+name: Coverage Report
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Rust Backend Coverage
+  backend-coverage:
+    name: Backend Coverage Report
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: miuchichat
+          POSTGRES_PASSWORD: password123
+          POSTGRES_DB: miuchichat
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      meilisearch:
+        image: getmeili/meilisearch:v1.5
+        env:
+          MEILI_MASTER_KEY: masterKey123
+          MEILI_ENV: development
+        ports:
+          - 7700:7700
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Install coverage tools
+      run: |
+        cargo install cargo-tarpaulin
+        cargo install sqlx-cli --no-default-features --features postgres
+
+    - name: Setup environment
+      run: |
+        echo "DATABASE_URL=postgres://miuchichat:password123@localhost:5432/miuchichat" >> $GITHUB_ENV
+        echo "GITHUB_CLIENT_ID=test_client_id" >> $GITHUB_ENV
+        echo "GITHUB_CLIENT_SECRET=test_client_secret" >> $GITHUB_ENV
+        echo "JWT_SECRET=test_jwt_secret_key_for_development_only_do_not_use_in_production" >> $GITHUB_ENV
+        echo "RUST_LOG=debug" >> $GITHUB_ENV
+        echo "MEILISEARCH_URL=http://localhost:7700" >> $GITHUB_ENV
+        echo "MEILISEARCH_API_KEY=masterKey123" >> $GITHUB_ENV
+
+    - name: Run database migrations
+      run: |
+        sqlx database create
+        sqlx migrate run
+
+    - name: Generate backend coverage report
+      run: |
+        cargo tarpaulin \
+          --verbose \
+          --all-features \
+          --workspace \
+          --timeout 120 \
+          --out xml \
+          --out html \
+          --output-dir ./coverage/backend \
+          --exclude-files src/main.rs \
+          --exclude-files migrations/* \
+          --exclude-files tests/*
+
+    - name: Generate backend coverage summary
+      run: |
+        coverage=$(grep -oP 'line-rate="\K[^"]*' coverage/backend/cobertura.xml | head -1)
+        coverage_percent=$(echo "$coverage * 100" | bc -l | cut -d. -f1)
+        
+        echo "## 🦀 Backend Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Overall Coverage**: ${coverage_percent}%" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "$coverage_percent" -ge "80" ]; then
+          echo "✅ **Status**: Excellent coverage (≥80%)" >> $GITHUB_STEP_SUMMARY
+        elif [ "$coverage_percent" -ge "70" ]; then
+          echo "⚠️ **Status**: Good coverage (≥70%)" >> $GITHUB_STEP_SUMMARY
+        elif [ "$coverage_percent" -ge "60" ]; then
+          echo "🔶 **Status**: Moderate coverage (≥60%)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "🔴 **Status**: Low coverage (<60%)" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Upload backend coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage/backend/cobertura.xml
+        flags: backend
+        name: backend-coverage
+        token: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Upload backend coverage artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-coverage-report
+        path: ./coverage/backend/
+        retention-days: 30
+
+  # Frontend Coverage
+  frontend-coverage:
+    name: Frontend Coverage Report
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8.0.0
+
+    - name: Cache pnpm dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.pnpm-store
+        key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: pnpm install
+
+    - name: Generate frontend coverage report
+      working-directory: ./frontend
+      run: |
+        pnpm run test:coverage --reporter=verbose
+        
+        # Ensure coverage directory exists
+        mkdir -p ../coverage/frontend
+        cp -r coverage/* ../coverage/frontend/
+
+    - name: Generate frontend coverage summary
+      working-directory: ./frontend
+      run: |
+        # Extract coverage percentages from the summary
+        lines_pct=$(jq -r '.total.lines.pct' coverage/coverage-summary.json)
+        statements_pct=$(jq -r '.total.statements.pct' coverage/coverage-summary.json)
+        functions_pct=$(jq -r '.total.functions.pct' coverage/coverage-summary.json)
+        branches_pct=$(jq -r '.total.branches.pct' coverage/coverage-summary.json)
+        
+        echo "## ⚛️ Frontend Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Lines | ${lines_pct}% |" >> $GITHUB_STEP_SUMMARY
+        echo "| Statements | ${statements_pct}% |" >> $GITHUB_STEP_SUMMARY
+        echo "| Functions | ${functions_pct}% |" >> $GITHUB_STEP_SUMMARY
+        echo "| Branches | ${branches_pct}% |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Overall status
+        overall_pct=$(echo "($lines_pct + $statements_pct + $functions_pct + $branches_pct) / 4" | bc -l | cut -d. -f1)
+        
+        if [ "$overall_pct" -ge "75" ]; then
+          echo "✅ **Status**: Excellent coverage (≥75%)" >> $GITHUB_STEP_SUMMARY
+        elif [ "$overall_pct" -ge "65" ]; then
+          echo "⚠️ **Status**: Good coverage (≥65%)" >> $GITHUB_STEP_SUMMARY
+        elif [ "$overall_pct" -ge "55" ]; then
+          echo "🔶 **Status**: Moderate coverage (≥55%)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "🔴 **Status**: Low coverage (<55%)" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Upload frontend coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage/frontend/lcov.info
+        flags: frontend
+        name: frontend-coverage
+        token: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Upload frontend coverage artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-coverage-report
+        path: ./coverage/frontend/
+        retention-days: 30
+
+  # Combined Coverage Report
+  combined-coverage:
+    name: Combined Coverage Report
+    runs-on: ubuntu-latest
+    needs: [backend-coverage, frontend-coverage]
+    if: always()
+    
+    steps:
+    - name: Download coverage artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./coverage-reports
+
+    - name: Generate combined coverage summary
+      run: |
+        echo "## 📊 Combined Coverage Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Backend coverage
+        if [ -f "coverage-reports/backend-coverage-report/cobertura.xml" ]; then
+          backend_coverage=$(grep -oP 'line-rate="\K[^"]*' coverage-reports/backend-coverage-report/cobertura.xml | head -1)
+          backend_percent=$(echo "$backend_coverage * 100" | bc -l | cut -d. -f1)
+          echo "🦀 **Backend Coverage**: ${backend_percent}%" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "🦀 **Backend Coverage**: N/A (failed)" >> $GITHUB_STEP_SUMMARY
+          backend_percent=0
+        fi
+        
+        # Frontend coverage
+        if [ -f "coverage-reports/frontend-coverage-report/coverage-summary.json" ]; then
+          frontend_coverage=$(jq -r '.total.lines.pct' coverage-reports/frontend-coverage-report/coverage-summary.json)
+          echo "⚛️ **Frontend Coverage**: ${frontend_coverage}%" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚛️ **Frontend Coverage**: N/A (failed)" >> $GITHUB_STEP_SUMMARY
+          frontend_coverage=0
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Overall project health
+        if [ "$backend_percent" -ge "80" ] && (( $(echo "$frontend_coverage >= 75" | bc -l) )); then
+          echo "🎉 **Project Health**: Excellent" >> $GITHUB_STEP_SUMMARY
+        elif [ "$backend_percent" -ge "70" ] && (( $(echo "$frontend_coverage >= 65" | bc -l) )); then
+          echo "✅ **Project Health**: Good" >> $GITHUB_STEP_SUMMARY
+        elif [ "$backend_percent" -ge "60" ] && (( $(echo "$frontend_coverage >= 55" | bc -l) )); then
+          echo "⚠️ **Project Health**: Fair" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "🔴 **Project Health**: Needs Improvement" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📈 **Recommendations**:" >> $GITHUB_STEP_SUMMARY
+        echo "- Target: Backend ≥80%, Frontend ≥75%" >> $GITHUB_STEP_SUMMARY
+        echo "- Focus on testing critical paths and error handling" >> $GITHUB_STEP_SUMMARY
+        echo "- Add integration tests for WebSocket functionality" >> $GITHUB_STEP_SUMMARY
+
+  # Coverage Badge Update (for main branch)
+  update-coverage-badge:
+    name: Update Coverage Badge
+    runs-on: ubuntu-latest
+    needs: [backend-coverage, frontend-coverage]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download coverage artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./coverage-reports
+
+    - name: Update README with coverage badges
+      run: |
+        # Extract coverage percentages
+        backend_coverage=$(grep -oP 'line-rate="\K[^"]*' coverage-reports/backend-coverage-report/cobertura.xml | head -1)
+        backend_percent=$(echo "$backend_coverage * 100" | bc -l | cut -d. -f1)
+        
+        frontend_coverage=$(jq -r '.total.lines.pct' coverage-reports/frontend-coverage-report/coverage-summary.json)
+        
+        # Create coverage badges (using shields.io)
+        backend_color="red"
+        if [ "$backend_percent" -ge "80" ]; then backend_color="brightgreen"
+        elif [ "$backend_percent" -ge "70" ]; then backend_color="yellow"
+        elif [ "$backend_percent" -ge "60" ]; then backend_color="orange"
+        fi
+        
+        frontend_color="red"
+        if (( $(echo "$frontend_coverage >= 75" | bc -l) )); then frontend_color="brightgreen"
+        elif (( $(echo "$frontend_coverage >= 65" | bc -l) )); then frontend_color="yellow"
+        elif (( $(echo "$frontend_coverage >= 55" | bc -l) )); then frontend_color="orange"
+        fi
+        
+        echo "Backend coverage: ${backend_percent}% (${backend_color})"
+        echo "Frontend coverage: ${frontend_coverage}% (${frontend_color})"
+        
+        # Note: Actual README update would be implemented here if needed

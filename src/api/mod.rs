@@ -4,6 +4,7 @@ use meilisearch_sdk::client::Client as MeilisearchClient;
 
 pub mod auth;
 pub mod chat;
+pub mod response;
 pub mod search;
 
 pub fn create_router() -> Router<(PgPool, MeilisearchClient)> {
