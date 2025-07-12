@@ -159,6 +159,22 @@ class WebSocketService {
         this.messageHandlers.add(handler)
         return () => this.messageHandlers.delete(handler) // 登録解除関数を返す
     }
+
+    // WebRTC用の汎用メッセージ送信メソッド
+    send(message: WsMessage) {
+        this.sendMessage(message)
+    }
+
+    // 特定のメッセージタイプ用のハンドラーを追加
+    addMessageHandler(messageType: string, handler: (message: any) => void) {
+        const wrappedHandler = (message: WsMessage) => {
+            if (message.type === messageType) {
+                handler(message)
+            }
+        }
+        this.messageHandlers.add(wrappedHandler)
+        return () => this.messageHandlers.delete(wrappedHandler)
+    }
     
     onConnectionStateChange(handler: (state: ConnectionState) => void) {
         this.connectionStateHandlers.add(handler)
@@ -429,6 +445,35 @@ class WebSocketService {
 
 // WebSocketサービスのインスタンスを作成
 export const wsService = new WebSocketService()
+
+// WebRTC用のWebSocketManagerエイリアス
+export class WebSocketManager {
+    constructor(private wsService: WebSocketService = wsService) {}
+
+    send(message: any) {
+        this.wsService.send(message)
+    }
+
+    addMessageHandler(messageType: string, handler: (message: any) => void) {
+        return this.wsService.addMessageHandler(messageType, handler)
+    }
+
+    onMessage(handler: (message: any) => void) {
+        return this.wsService.onMessage(handler)
+    }
+
+    connect(token: string) {
+        return this.wsService.connect(token)
+    }
+
+    disconnect() {
+        this.wsService.disconnect()
+    }
+
+    isConnected() {
+        return this.wsService.isConnected()
+    }
+}
 
 // エクスポート
 export { ConnectionState }

@@ -8,6 +8,8 @@ import MessageList from '../components/chat/MessageList'
 import RoomList from '../components/chat/RoomList'
 import MemberList from '../components/chat/MemberList'
 import { SearchModal } from '../components/chat/SearchModal'
+import { CallControls } from '../components/chat/CallControls'
+import '../components/chat/CallControls.css'
 import type { Message, Room } from '../types'
 
 export default function ChatPage() {
@@ -23,6 +25,7 @@ export default function ChatPage() {
     const [isLoadingMessages, setIsLoadingMessages] = useState(false)
     const [showMemberList, setShowMemberList] = useState(false)
     const [showSearchModal, setShowSearchModal] = useState(false)
+    const [onlineUsers, setOnlineUsers] = useState<{user_id: string, username: string}[]>([])
 
     // useCallbackでコールバック関数を最適化
     const handleMessage = useCallback((message: Message) => {
@@ -119,6 +122,26 @@ export default function ChatPage() {
         // Automatically join the newly created room
         await handleRoomSelect(newRoom)
     }
+
+    // オンラインユーザーを取得
+    useEffect(() => {
+        const loadOnlineUsers = async () => {
+            try {
+                const response = await api.getOnlineUsers()
+                setOnlineUsers(response.users.map((user: any) => ({
+                    user_id: user.user_id,
+                    username: user.username
+                })))
+            } catch (error) {
+                console.error('Failed to load online users:', error)
+            }
+        }
+
+        loadOnlineUsers()
+        // 30秒ごとに更新
+        const interval = setInterval(loadOnlineUsers, 30000)
+        return () => clearInterval(interval)
+    }, [])
 
 
     if (!user) {
@@ -253,6 +276,14 @@ export default function ChatPage() {
                                 )}
                             </div>
                         </div>
+
+                        {/* 通話コントロール */}
+                        {selectedRoom && (
+                            <CallControls 
+                                roomId={selectedRoom.id} 
+                                onlineUsers={onlineUsers}
+                            />
+                        )}
 
                         {/* メッセージエリア */}
                         <MessageList 

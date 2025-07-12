@@ -1,0 +1,258 @@
+/* 通話コントロールUI */
+.call-controls {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    margin: 0.5rem 0;
+    font-family: var(--font-mono);
+}
+
+/* アイドル状態 */
+.call-controls.idle .call-setup {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.user-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.user-selector label {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.user-select {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+}
+
+.user-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-alpha);
+}
+
+.no-users-message {
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+    padding: 0.5rem;
+}
+
+/* 着信状態 */
+.call-controls.incoming-call {
+    background: var(--warning-bg);
+    border-color: var(--warning);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+}
+
+.incoming-call-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.call-icon {
+    font-size: 2rem;
+    animation: ring 1s infinite;
+}
+
+@keyframes ring {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-15deg); }
+    75% { transform: rotate(15deg); }
+}
+
+.caller-info {
+    flex: 1;
+}
+
+.caller-name {
+    font-weight: bold;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.call-status {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+/* 通話中状態 */
+.call-controls.active-call {
+    background: var(--success-bg);
+    border-color: var(--success);
+}
+
+.active-call-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.active-call-info .call-icon {
+    animation: pulse-glow 2s infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.1); }
+}
+
+/* ボタン共通スタイル */
+.call-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.call-btn {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1.25rem;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 100px;
+    justify-content: center;
+}
+
+.call-btn:hover:not(:disabled) {
+    background: var(--bg-secondary);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+
+.call-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.call-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 特定ボタンのスタイル */
+.start-btn {
+    background: var(--success);
+    color: var(--bg-primary);
+    border-color: var(--success);
+}
+
+.start-btn:hover:not(:disabled) {
+    background: var(--success-hover);
+    border-color: var(--success-hover);
+}
+
+.answer-btn {
+    background: var(--success);
+    color: var(--bg-primary);
+    border-color: var(--success);
+}
+
+.answer-btn:hover {
+    background: var(--success-hover);
+    border-color: var(--success-hover);
+}
+
+.decline-btn,
+.end-btn {
+    background: var(--error);
+    color: var(--bg-primary);
+    border-color: var(--error);
+}
+
+.decline-btn:hover,
+.end-btn:hover {
+    background: var(--error-hover);
+    border-color: var(--error-hover);
+}
+
+.mute-btn {
+    background: var(--warning);
+    color: var(--bg-primary);
+    border-color: var(--warning);
+}
+
+.mute-btn:hover {
+    background: var(--warning-hover);
+    border-color: var(--warning-hover);
+}
+
+.mute-btn.muted {
+    background: var(--error);
+    border-color: var(--error);
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.7; }
+}
+
+/* エラーメッセージ */
+.call-error {
+    background: var(--error-bg);
+    color: var(--error);
+    border: 1px solid var(--error);
+    border-radius: 4px;
+    padding: 0.75rem;
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 480px) {
+    .call-controls {
+        padding: 0.75rem;
+    }
+    
+    .call-actions {
+        flex-direction: column;
+    }
+    
+    .call-btn {
+        min-width: unset;
+        width: 100%;
+    }
+    
+    .incoming-call-info {
+        flex-direction: column;
+        text-align: center;
+        gap: 0.75rem;
+    }
+    
+    .user-selector {
+        gap: 0.5rem;
+    }
+    
+    .call-setup {
+        gap: 0.5rem;
+    }
+}
