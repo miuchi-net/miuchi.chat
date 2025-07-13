@@ -68,8 +68,8 @@ jobs:
         echo "GITHUB_CLIENT_SECRET=test_client_secret" >> $GITHUB_ENV
         echo "JWT_SECRET=test_jwt_secret_key_for_development_only_do_not_use_in_production" >> $GITHUB_ENV
         echo "RUST_LOG=debug" >> $GITHUB_ENV
-        echo "MEILISEARCH_URL=http://localhost:7700" >> $GITHUB_ENV
-        echo "MEILISEARCH_API_KEY=masterKey123" >> $GITHUB_ENV
+        echo "MEILI_URL=http://localhost:7700" >> $GITHUB_ENV
+        echo "MEILI_MASTER_KEY=masterKey123" >> $GITHUB_ENV
 
     - name: Run database migrations
       run: |
@@ -235,7 +235,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./Dockerfile
+        file: ./Dockerfile.backend
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}

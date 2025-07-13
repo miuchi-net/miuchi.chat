@@ -18,6 +18,12 @@ pnpm-debug.log*
 # Build outputs
 dist/
 build/
+**/dist/
+**/build/
+
+# Package manager files
+package-lock.json  # pnpm使用時は不要
+yarn.lock          # pnpm使用時は不要
 
 # IDEs
 .vscode/
@@ -28,5 +34,27 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# pnpm
 /frontend/.pnpm-store
+.pnpm-store/
+
+# Claude settings
 .claude/settings.local.json
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.pid
+*.cache
+cookies.txt
+
+# Database files (development)
+*.db
+*.sqlite
+*.sqlite3
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
