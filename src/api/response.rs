@@ -1,5 +1,5 @@
-use serde::Serialize;
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 
 /// 統一されたAPIレスポンス形式
 #[derive(Serialize)]
@@ -53,14 +53,14 @@ impl<T> ApiResponse<T> {
             }),
         }
     }
-    
+
     /// ページネーション付きレスポンス作成
     pub fn with_pagination(
-        data: T, 
-        total: u64, 
-        has_more: bool, 
+        data: T,
+        total: u64,
+        has_more: bool,
         page_size: u32,
-        next_cursor: Option<String>
+        next_cursor: Option<String>,
     ) -> Self {
         Self {
             data,
@@ -73,7 +73,7 @@ impl<T> ApiResponse<T> {
             }),
         }
     }
-    
+
     /// メタデータなしレスポンス
     pub fn data_only(data: T) -> Self {
         Self { data, meta: None }
@@ -91,7 +91,7 @@ impl ErrorResponse {
             },
         }
     }
-    
+
     pub fn with_details(code: &str, message: &str, details: serde_json::Value) -> Self {
         Self {
             error: ErrorDetail {
@@ -113,7 +113,7 @@ mod tests {
     fn test_simple_response() {
         let response = ApiResponse::new("hello world");
         let json = serde_json::to_string(&response).unwrap();
-        
+
         assert!(json.contains("\"data\":\"hello world\""));
         assert!(json.contains("\"meta\""));
         assert!(json.contains("\"timestamp\""));
@@ -122,14 +122,14 @@ mod tests {
     #[test]
     fn test_paginated_response() {
         let response = ApiResponse::with_pagination(
-            vec!["item1", "item2"], 
-            100, 
-            true, 
+            vec!["item1", "item2"],
+            100,
+            true,
             50,
-            Some("cursor123".to_string())
+            Some("cursor123".to_string()),
         );
         let json = serde_json::to_string(&response).unwrap();
-        
+
         assert!(json.contains("\"total\":100"));
         assert!(json.contains("\"has_more\":true"));
         assert!(json.contains("\"page_size\":50"));
@@ -140,7 +140,7 @@ mod tests {
     fn test_error_response() {
         let response = ErrorResponse::new("NOT_FOUND", "Resource not found");
         let json = serde_json::to_string(&response).unwrap();
-        
+
         assert!(json.contains("\"code\":\"NOT_FOUND\""));
         assert!(json.contains("\"message\":\"Resource not found\""));
         assert!(json.contains("\"timestamp\""));
@@ -149,13 +149,10 @@ mod tests {
     #[test]
     fn test_error_response_with_details() {
         let details = json!({"field": "username", "reason": "already_exists"});
-        let response = ErrorResponse::with_details(
-            "VALIDATION_ERROR", 
-            "Validation failed", 
-            details
-        );
+        let response =
+            ErrorResponse::with_details("VALIDATION_ERROR", "Validation failed", details);
         let json = serde_json::to_string(&response).unwrap();
-        
+
         assert!(json.contains("\"details\""));
         assert!(json.contains("\"field\":\"username\""));
     }

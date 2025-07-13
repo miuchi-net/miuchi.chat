@@ -95,21 +95,19 @@ async fn main() -> anyhow::Result<()> {
     // データベース接続プールを作成
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://postgres:password@postgres:5432/miuchi_chat".to_string());
-    
+
     tracing::info!("Connecting to database: {}", database_url);
     let pool = PgPool::connect(&database_url).await?;
-    
+
     // データベース接続テスト
-    let version: (String,) = sqlx::query_as("SELECT version()")
-        .fetch_one(&pool)
-        .await?;
+    let version: (String,) = sqlx::query_as("SELECT version()").fetch_one(&pool).await?;
     tracing::info!("Database connected: {}", version.0);
 
     // Meilisearchクライアントを初期化
-    let meilisearch_url = std::env::var("MEILI_URL")
-        .unwrap_or_else(|_| "http://meilisearch:7700".to_string());
+    let meilisearch_url =
+        std::env::var("MEILI_URL").unwrap_or_else(|_| "http://meilisearch:7700".to_string());
     let meilisearch_key = std::env::var("MEILI_MASTER_KEY").ok();
-    
+
     let meili_client = if let Some(key) = meilisearch_key {
         meilisearch_sdk::client::Client::new(meilisearch_url, Some(key))?
     } else {
@@ -119,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
 
     // WebSocket用の状態管理を初期化
     let ws_state: ws::AppState = Arc::new(RwLock::new(HashMap::new()));
-    
+
     // レート制限リセットタスクを開始
     ws::start_rate_limit_reset_task(ws_state.clone());
 
@@ -130,7 +128,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/db-health", get(db_health_check))
         .route("/api-docs/openapi.json", get(openapi_json))
         .route("/swagger-ui", get(swagger_ui))
-        .nest("/api", api::create_router().with_state((pool.clone(), meili_client.clone())))
+        .nest(
+            "/api",
+            api::create_router().with_state((pool.clone(), meili_client.clone())),
+        )
         .merge(api::create_chat_router())
         .route("/ws", get(ws::websocket_handler))
         .with_state((pool, ws_state, meili_client))
@@ -139,7 +140,7 @@ async fn main() -> anyhow::Result<()> {
     // サーバーを起動
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("listening on {}", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 
@@ -160,7 +161,9 @@ async fn health_check() -> Json<Value> {
     }))
 }
 
-async fn db_health_check(State((pool, _, _)): State<(PgPool, ws::AppState, meilisearch_sdk::client::Client)>) -> Json<Value> {
+async fn db_health_check(
+    State((pool, _, _)): State<(PgPool, ws::AppState, meilisearch_sdk::client::Client)>,
+) -> Json<Value> {
     match sqlx::query("SELECT 1").execute(&pool).await {
         Ok(_) => Json(json!({
             "status": "healthy",
@@ -172,7 +175,7 @@ async fn db_health_check(State((pool, _, _)): State<(PgPool, ws::AppState, meili
             "database": "disconnected",
             "error": e.to_string(),
             "timestamp": chrono::Utc::now()
-        }))
+        })),
     }
 }
 
@@ -181,7 +184,8 @@ async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
 }
 
 async fn swagger_ui() -> Html<&'static str> {
-    Html(r#"
+    Html(
+        r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -216,5 +220,6 @@ async fn swagger_ui() -> Html<&'static str> {
     </script>
 </body>
 </html>
-"#)
+"#,
+    )
 }

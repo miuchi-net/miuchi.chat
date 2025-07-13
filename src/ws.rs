@@ -155,7 +155,11 @@ const WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(5);
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     Query(query): Query<WsQuery>,
-    State((pool, app_state, meili_client)): State<(PgPool, AppState, meilisearch_sdk::client::Client)>,
+    State((pool, app_state, meili_client)): State<(
+        PgPool,
+        AppState,
+        meilisearch_sdk::client::Client,
+    )>,
 ) -> Response {
     // トークンが必要
     let token = match query.token {
@@ -188,7 +192,13 @@ pub async fn websocket_handler(
 }
 
 // WebSocket接続の処理
-async fn websocket_connection(socket: WebSocket, user: User, pool: PgPool, app_state: AppState, meili_client: meilisearch_sdk::client::Client) {
+async fn websocket_connection(
+    socket: WebSocket,
+    user: User,
+    pool: PgPool,
+    app_state: AppState,
+    meili_client: meilisearch_sdk::client::Client,
+) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = broadcast::channel::<WsMessage>(100);
 
@@ -544,7 +554,7 @@ async fn handle_websocket_message(
                 "created_at": message.created_at.timestamp(),
                 "message_type": match db_message_type {
                     DbMessageType::Text => "text",
-                    DbMessageType::Image => "image", 
+                    DbMessageType::Image => "image",
                     DbMessageType::File => "file",
                     DbMessageType::System => "system",
                 }
@@ -599,19 +609,67 @@ async fn handle_websocket_message(
         }
 
         // WebRTC シグナリング処理
-        WsMessage::WebRtcOffer { room, to_user_id, offer } => {
-            info!("WebRTC offer from {} to {} in room {}", user.username, to_user_id, room);
-            relay_webrtc_signal(WsMessage::WebRtcOffer { room, to_user_id, offer }, user.id, app_state).await?;
+        WsMessage::WebRtcOffer {
+            room,
+            to_user_id,
+            offer,
+        } => {
+            info!(
+                "WebRTC offer from {} to {} in room {}",
+                user.username, to_user_id, room
+            );
+            relay_webrtc_signal(
+                WsMessage::WebRtcOffer {
+                    room,
+                    to_user_id,
+                    offer,
+                },
+                user.id,
+                app_state,
+            )
+            .await?;
         }
 
-        WsMessage::WebRtcAnswer { room, to_user_id, answer } => {
-            info!("WebRTC answer from {} to {} in room {}", user.username, to_user_id, room);
-            relay_webrtc_signal(WsMessage::WebRtcAnswer { room, to_user_id, answer }, user.id, app_state).await?;
+        WsMessage::WebRtcAnswer {
+            room,
+            to_user_id,
+            answer,
+        } => {
+            info!(
+                "WebRTC answer from {} to {} in room {}",
+                user.username, to_user_id, room
+            );
+            relay_webrtc_signal(
+                WsMessage::WebRtcAnswer {
+                    room,
+                    to_user_id,
+                    answer,
+                },
+                user.id,
+                app_state,
+            )
+            .await?;
         }
 
-        WsMessage::WebRtcIceCandidate { room, to_user_id, candidate } => {
-            debug!("WebRTC ICE candidate from {} to {} in room {}", user.username, to_user_id, room);
-            relay_webrtc_signal(WsMessage::WebRtcIceCandidate { room, to_user_id, candidate }, user.id, app_state).await?;
+        WsMessage::WebRtcIceCandidate {
+            room,
+            to_user_id,
+            candidate,
+        } => {
+            debug!(
+                "WebRTC ICE candidate from {} to {} in room {}",
+                user.username, to_user_id, room
+            );
+            relay_webrtc_signal(
+                WsMessage::WebRtcIceCandidate {
+                    room,
+                    to_user_id,
+                    candidate,
+                },
+                user.id,
+                app_state,
+            )
+            .await?;
         }
 
         _ => {
@@ -784,10 +842,15 @@ async fn broadcast_to_room(
 }
 
 // オンラインユーザー情報を取得
-pub async fn get_online_users_info(app_state: &AppState) -> Vec<(uuid::Uuid, String, Vec<String>, std::time::Instant)> {
+pub async fn get_online_users_info(
+    app_state: &AppState,
+) -> Vec<(uuid::Uuid, String, Vec<String>, std::time::Instant)> {
     let state = app_state.read().await;
-    let mut users_map: std::collections::HashMap<uuid::Uuid, (String, Vec<String>, std::time::Instant)> = std::collections::HashMap::new();
-    
+    let mut users_map: std::collections::HashMap<
+        uuid::Uuid,
+        (String, Vec<String>, std::time::Instant),
+    > = std::collections::HashMap::new();
+
     // 各ルームのクライアントを走査
     for (room_name, room_clients) in state.iter() {
         for (user_id, client) in room_clients.iter() {
@@ -796,17 +859,21 @@ pub async fn get_online_users_info(app_state: &AppState) -> Vec<(uuid::Uuid, Str
                 rooms.push(room_name.clone());
             } else {
                 // 新しいユーザーを追加
-                users_map.insert(*user_id, (
-                    client.username.clone(),
-                    vec![room_name.clone()],
-                    client.connected_at
-                ));
+                users_map.insert(
+                    *user_id,
+                    (
+                        client.username.clone(),
+                        vec![room_name.clone()],
+                        client.connected_at,
+                    ),
+                );
             }
         }
     }
-    
+
     // Vec形式で返す
-    users_map.into_iter()
+    users_map
+        .into_iter()
         .map(|(user_id, (username, rooms, connected_at))| (user_id, username, rooms, connected_at))
         .collect()
 }
@@ -820,10 +887,9 @@ async fn relay_webrtc_signal(
     let target_user_id = match &message {
         WsMessage::WebRtcOffer { to_user_id, .. }
         | WsMessage::WebRtcAnswer { to_user_id, .. }
-        | WsMessage::WebRtcIceCandidate { to_user_id, .. } => {
-            to_user_id.parse::<Uuid>()
-                .map_err(|_| anyhow::anyhow!("Invalid target user ID"))?
-        }
+        | WsMessage::WebRtcIceCandidate { to_user_id, .. } => to_user_id
+            .parse::<Uuid>()
+            .map_err(|_| anyhow::anyhow!("Invalid target user ID"))?,
         _ => return Err(anyhow::anyhow!("Invalid WebRTC message type")),
     };
 
@@ -845,7 +911,9 @@ async fn relay_webrtc_signal(
                     to_user_id: from_user_id.to_string(),
                     answer,
                 },
-                WsMessage::WebRtcIceCandidate { room, candidate, .. } => WsMessage::WebRtcIceCandidate {
+                WsMessage::WebRtcIceCandidate {
+                    room, candidate, ..
+                } => WsMessage::WebRtcIceCandidate {
                     room,
                     to_user_id: from_user_id.to_string(),
                     candidate,
@@ -860,7 +928,10 @@ async fn relay_webrtc_signal(
                     break; // 1つの接続に送信したら終了
                 }
                 Err(e) => {
-                    warn!("Failed to send WebRTC signal to user {}: {}", target_user_id, e);
+                    warn!(
+                        "Failed to send WebRTC signal to user {}: {}",
+                        target_user_id, e
+                    );
                 }
             }
         }

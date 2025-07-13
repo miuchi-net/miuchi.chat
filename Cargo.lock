@@ -1395,6 +1395,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "futures-util",
+ "http-body-util",
  "hyper 1.6.0",
  "jsonwebtoken",
  "meilisearch-sdk",

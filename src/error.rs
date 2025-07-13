@@ -1,41 +1,44 @@
+use crate::api::response::ErrorResponse;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use serde_json::json;
-use crate::api::response::ErrorResponse;
 
 /// アプリケーション全体のエラー型
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("Database error")]
     Database(#[from] sqlx::Error),
-    
+
     #[error("Authentication failed: {message}")]
     Authentication { message: String },
-    
+
     #[error("Authorization failed: {message}")]
     Authorization { message: String },
-    
+
     #[error("Not found: {resource}")]
     NotFound { resource: String },
-    
+
     #[error("Bad request: {message}")]
     BadRequest { message: String },
-    
+
     #[error("Validation error: {message}")]
-    Validation { message: String, details: Option<serde_json::Value> },
-    
+    Validation {
+        message: String,
+        details: Option<serde_json::Value>,
+    },
+
     #[error("Rate limit exceeded")]
     RateLimit,
-    
+
     #[error("WebSocket error: {message}")]
     WebSocket { message: String },
-    
+
     #[error("External service error: {service}")]
     ExternalService { service: String, message: String },
-    
+
     #[error("Internal server error")]
     Internal(#[from] anyhow::Error),
 }
@@ -45,7 +48,7 @@ impl AppError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Database(_) => "DATABASE_ERROR",
-            Self::Authentication { .. } => "AUTHENTICATION_ERROR", 
+            Self::Authentication { .. } => "AUTHENTICATION_ERROR",
             Self::Authorization { .. } => "AUTHORIZATION_ERROR",
             Self::NotFound { .. } => "NOT_FOUND",
             Self::BadRequest { .. } => "BAD_REQUEST",
@@ -56,7 +59,7 @@ impl AppError {
             Self::Internal(_) => "INTERNAL_ERROR",
         }
     }
-    
+
     /// HTTPステータスコードを返す
     pub fn status_code(&self) -> StatusCode {
         match self {
@@ -70,7 +73,7 @@ impl AppError {
             Self::ExternalService { .. } => StatusCode::BAD_GATEWAY,
         }
     }
-    
+
     /// 詳細情報を返す（ログ用）
     pub fn details(&self) -> Option<serde_json::Value> {
         match self {
@@ -85,20 +88,31 @@ impl AppError {
             _ => None,
         }
     }
-    
+
     /// ユーザー向けメッセージ（機密情報を含まない）
     pub fn user_message(&self) -> String {
         match self {
-            Self::Database(_) => "データベースエラーが発生しました。しばらく時間をおいて再試行してください。".to_string(),
-            Self::Authentication { .. } => "認証に失敗しました。再度ログインしてください。".to_string(),
+            Self::Database(_) => {
+                "データベースエラーが発生しました。しばらく時間をおいて再試行してください。"
+                    .to_string()
+            }
+            Self::Authentication { .. } => {
+                "認証に失敗しました。再度ログインしてください。".to_string()
+            }
             Self::Authorization { message } => message.clone(),
             Self::NotFound { resource } => format!("{}が見つかりません。", resource),
             Self::BadRequest { message } => message.clone(),
             Self::Validation { message, .. } => message.clone(),
-            Self::RateLimit => "送信回数が制限を超えました。しばらく時間をおいて再試行してください。".to_string(),
+            Self::RateLimit => {
+                "送信回数が制限を超えました。しばらく時間をおいて再試行してください。".to_string()
+            }
             Self::WebSocket { message } => format!("接続エラー: {}", message),
-            Self::ExternalService { .. } => "外部サービスとの通信でエラーが発生しました。".to_string(),
-            Self::Internal(_) => "内部エラーが発生しました。管理者にお問い合わせください。".to_string(),
+            Self::ExternalService { .. } => {
+                "外部サービスとの通信でエラーが発生しました。".to_string()
+            }
+            Self::Internal(_) => {
+                "内部エラーが発生しました。管理者にお問い合わせください。".to_string()
+            }
         }
     }
 }
@@ -125,39 +139,49 @@ impl IntoResponse for AppError {
 /// 便利なヘルパー関数
 impl AppError {
     pub fn auth(message: impl Into<String>) -> Self {
-        Self::Authentication { message: message.into() }
+        Self::Authentication {
+            message: message.into(),
+        }
     }
-    
+
     pub fn forbidden(message: impl Into<String>) -> Self {
-        Self::Authorization { message: message.into() }
+        Self::Authorization {
+            message: message.into(),
+        }
     }
-    
+
     pub fn not_found(resource: impl Into<String>) -> Self {
-        Self::NotFound { resource: resource.into() }
+        Self::NotFound {
+            resource: resource.into(),
+        }
     }
-    
+
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self::BadRequest { message: message.into() }
+        Self::BadRequest {
+            message: message.into(),
+        }
     }
-    
+
     pub fn validation(message: impl Into<String>) -> Self {
-        Self::Validation { 
-            message: message.into(), 
-            details: None 
+        Self::Validation {
+            message: message.into(),
+            details: None,
         }
     }
-    
+
     pub fn validation_with_details(message: impl Into<String>, details: serde_json::Value) -> Self {
-        Self::Validation { 
-            message: message.into(), 
-            details: Some(details) 
+        Self::Validation {
+            message: message.into(),
+            details: Some(details),
         }
     }
-    
+
     pub fn ws_error(message: impl Into<String>) -> Self {
-        Self::WebSocket { message: message.into() }
+        Self::WebSocket {
+            message: message.into(),
+        }
     }
-    
+
     pub fn external_service(service: impl Into<String>, message: impl Into<String>) -> Self {
         Self::ExternalService {
             service: service.into(),
@@ -176,22 +200,37 @@ mod tests {
     #[test]
     fn test_error_codes() {
         assert_eq!(AppError::not_found("user").code(), "NOT_FOUND");
-        assert_eq!(AppError::auth("invalid token").code(), "AUTHENTICATION_ERROR");
-        assert_eq!(AppError::forbidden("access denied").code(), "AUTHORIZATION_ERROR");
+        assert_eq!(
+            AppError::auth("invalid token").code(),
+            "AUTHENTICATION_ERROR"
+        );
+        assert_eq!(
+            AppError::forbidden("access denied").code(),
+            "AUTHORIZATION_ERROR"
+        );
     }
 
     #[test]
     fn test_status_codes() {
-        assert_eq!(AppError::not_found("user").status_code(), StatusCode::NOT_FOUND);
-        assert_eq!(AppError::auth("invalid").status_code(), StatusCode::UNAUTHORIZED);
-        assert_eq!(AppError::forbidden("denied").status_code(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            AppError::not_found("user").status_code(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            AppError::auth("invalid").status_code(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            AppError::forbidden("denied").status_code(),
+            StatusCode::FORBIDDEN
+        );
     }
 
     #[test]
     fn test_user_messages() {
         let error = AppError::not_found("ルーム");
         assert_eq!(error.user_message(), "ルームが見つかりません。");
-        
+
         let error = AppError::validation("ユーザー名が無効です");
         assert_eq!(error.user_message(), "ユーザー名が無効です");
     }
@@ -200,7 +239,7 @@ mod tests {
     fn test_validation_with_details() {
         let details = json!({"field": "username", "min_length": 3});
         let error = AppError::validation_with_details("Validation failed", details.clone());
-        
+
         assert_eq!(error.code(), "VALIDATION_ERROR");
         assert_eq!(error.details(), Some(details));
     }

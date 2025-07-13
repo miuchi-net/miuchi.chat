@@ -48,7 +48,7 @@ impl Message {
             INSERT INTO messages (room_id, user_id, content, message_type)
             VALUES ($1, $2, $3, $4)
             RETURNING id, room_id, user_id, content, message_type, created_at, updated_at
-            "#
+            "#,
         )
         .bind(room_id)
         .bind(user_id)
@@ -102,17 +102,13 @@ impl Message {
             "#
         };
 
-        let mut query = sqlx::query_as::<_, MessageWithUser>(sql)
-            .bind(room_id);
+        let mut query = sqlx::query_as::<_, MessageWithUser>(sql).bind(room_id);
 
         if let Some(before_id) = before_id {
             query = query.bind(before_id);
         }
-        
-        let messages = query
-            .bind(limit)
-            .fetch_all(pool)
-            .await?;
+
+        let messages = query.bind(limit).fetch_all(pool).await?;
 
         Ok(messages)
     }
@@ -120,12 +116,12 @@ impl Message {
     pub async fn find_by_id(pool: &PgPool, id: Uuid) -> anyhow::Result<Option<Message>> {
         let message = sqlx::query_as::<_, Message>(
             "SELECT id, room_id, user_id, content, message_type, created_at, updated_at 
-             FROM messages WHERE id = $1"
+             FROM messages WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(pool)
         .await?;
-        
+
         Ok(message)
     }
 }

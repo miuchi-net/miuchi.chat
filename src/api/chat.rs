@@ -4,13 +4,13 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use meilisearch_sdk::client::Client as MeilisearchClient;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{IntoParams, ToSchema};
-use meilisearch_sdk::client::Client as MeilisearchClient;
 
-use crate::models::{Message as DbMessage, Room, DbMessageType};
 use crate::api::auth::AuthUser;
+use crate::models::{DbMessageType, Message as DbMessage, Room};
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct Message {
@@ -155,32 +155,36 @@ async fn get_messages(
 ) -> Result<Json<MessagesResponse>, axum::http::StatusCode> {
     let pool = &state.0;
     let limit = params.limit.unwrap_or(50).min(100) as i64;
-    
+
     // ルーム名からルームを検索
     let room = Room::find_by_name(&pool, &room_name)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
-    
+
     // beforeパラメータをUUIDにパース
     let before_id = if let Some(before_str) = &params.before {
-        Some(before_str.parse::<uuid::Uuid>()
-            .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?)
+        Some(
+            before_str
+                .parse::<uuid::Uuid>()
+                .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?,
+        )
     } else {
         None
     };
-    
+
     // メッセージを取得
     let db_messages = DbMessage::find_by_room_with_users(&pool, room.id, limit, before_id)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     let has_more = db_messages.len() == limit as usize;
     let next_cursor = db_messages.last().map(|msg| msg.id.to_string());
-    
+
     // APIレスポンス形式に変換
-    let messages: Vec<Message> = db_messages.into_iter().map(|msg| {
-        Message {
+    let messages: Vec<Message> = db_messages
+        .into_iter()
+        .map(|msg| Message {
             id: msg.id.to_string(),
             room_id: msg.room_id.to_string(),
             author_id: msg.user_id.to_string(),
@@ -194,9 +198,9 @@ async fn get_messages(
                 DbMessageType::File => MessageType::File,
                 DbMessageType::System => MessageType::System,
             },
-        }
-    }).collect();
-    
+        })
+        .collect();
+
     Ok(Json(MessagesResponse {
         messages,
         has_more,
@@ -235,22 +239,25 @@ async fn send_message(
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
-    
+
     // ユーザーIDをUUIDにパース
-    let user_id = user.user_id.parse::<uuid::Uuid>()
+    let user_id = user
+        .user_id
+        .parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    
+
     // パブリックルームでない場合のみメンバーシップをチェック
     if !room.is_public {
-        let is_member = room.is_member(&pool, user_id)
+        let is_member = room
+            .is_member(&pool, user_id)
             .await
             .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         if !is_member {
             return Err(axum::http::StatusCode::FORBIDDEN);
         }
     }
-    
+
     // メッセージタイプを変換
     let db_message_type = match payload.message_type.unwrap_or(MessageType::Text) {
         MessageType::Text => DbMessageType::Text,
@@ -258,7 +265,7 @@ async fn send_message(
         MessageType::File => DbMessageType::File,
         MessageType::System => DbMessageType::System,
     };
-    
+
     // メッセージを作成
     let message = DbMessage::create(
         &pool,
@@ -288,7 +295,7 @@ async fn send_message(
         "created_at": message.created_at.timestamp(),
         "message_type": match db_message_type {
             DbMessageType::Text => "text",
-            DbMessageType::Image => "image", 
+            DbMessageType::Image => "image",
             DbMessageType::File => "file",
             DbMessageType::System => "system",
         }
@@ -298,7 +305,7 @@ async fn send_message(
         tracing::error!("Failed to index message in Meilisearch: {}", e);
         // エラーをログに記録するが、メッセージ送信自体は成功とする
     }
-    
+
     Ok(Json(SendMessageResponse {
         message_id: message.id.to_string(),
         timestamp: message.created_at,
@@ -330,17 +337,22 @@ async fn create_room(
     if payload.name.is_empty() || payload.name.len() > 100 {
         return Err(axum::http::StatusCode::BAD_REQUEST);
     }
-    
+
     // ユーザーIDをUUIDにパース
-    let user_id = user.user_id.parse::<uuid::Uuid>()
+    let user_id = user
+        .user_id
+        .parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    
+
     // ルーム名の重複チェック
-    if Room::find_by_name(&pool, &payload.name).await
-        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?.is_some() {
+    if Room::find_by_name(&pool, &payload.name)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some()
+    {
         return Err(axum::http::StatusCode::CONFLICT);
     }
-    
+
     // ルームを作成
     let room = Room::create(
         &pool,
@@ -351,14 +363,14 @@ async fn create_room(
     )
     .await
     .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     // プライベートルームの場合、作成者をメンバーに追加
     if !payload.is_public {
         room.add_member(&pool, user_id)
             .await
             .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     }
-    
+
     Ok(Json(CreateRoomResponse {
         id: room.id.to_string(),
         name: room.name,
@@ -391,37 +403,44 @@ async fn get_room_members(
 ) -> Result<Json<RoomMembersResponse>, axum::http::StatusCode> {
     let pool = &state.0;
     // ユーザーIDをUUIDにパース
-    let user_id = user.user_id.parse::<uuid::Uuid>()
+    let user_id = user
+        .user_id
+        .parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    
+
     // ルーム名からルームを検索
     let room = Room::find_by_name(&pool, &room_name)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
-    
+
     // プライベートルームの場合、ユーザーがメンバーかチェック
     if !room.is_public {
-        let is_member = room.is_member(&pool, user_id)
+        let is_member = room
+            .is_member(&pool, user_id)
             .await
             .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         if !is_member {
             return Err(axum::http::StatusCode::FORBIDDEN);
         }
     }
-    
+
     // ルームメンバーを取得
-    let members = room.get_members(&pool)
+    let members = room
+        .get_members(&pool)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let response_members: Vec<RoomMember> = members.into_iter().map(|member| RoomMember {
-        user_id: member.user_id.to_string(),
-        username: member.username,
-        joined_at: member.joined_at,
-    }).collect();
-    
+
+    let response_members: Vec<RoomMember> = members
+        .into_iter()
+        .map(|member| RoomMember {
+            user_id: member.user_id.to_string(),
+            username: member.username,
+            joined_at: member.joined_at,
+        })
+        .collect();
+
     Ok(Json(RoomMembersResponse {
         members: response_members,
     }))
@@ -445,22 +464,27 @@ async fn get_rooms(
 ) -> Result<Json<RoomsResponse>, axum::http::StatusCode> {
     let pool = &state.0;
     // ユーザーIDをUUIDにパース
-    let user_id = user.user_id.parse::<uuid::Uuid>()
+    let user_id = user
+        .user_id
+        .parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    
+
     // ユーザーがアクセス可能なルームを取得
     let rooms = Room::get_accessible_rooms(&pool, user_id)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let response_rooms: Vec<RoomInfo> = rooms.into_iter().map(|room| RoomInfo {
-        id: room.id.to_string(),
-        name: room.name,
-        description: room.description,
-        is_public: room.is_public,
-        created_at: room.created_at,
-    }).collect();
-    
+
+    let response_rooms: Vec<RoomInfo> = rooms
+        .into_iter()
+        .map(|room| RoomInfo {
+            id: room.id.to_string(),
+            name: room.name,
+            description: room.description,
+            is_public: room.is_public,
+            created_at: room.created_at,
+        })
+        .collect();
+
     Ok(Json(RoomsResponse {
         rooms: response_rooms,
     }))
@@ -493,15 +517,17 @@ async fn invite_user(
 ) -> Result<Json<InviteUserResponse>, axum::http::StatusCode> {
     let pool = &state.0;
     // ユーザーIDをUUIDにパース
-    let user_id = user.user_id.parse::<uuid::Uuid>()
+    let user_id = user
+        .user_id
+        .parse::<uuid::Uuid>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    
+
     // ルームを検索
     let room = Room::find_by_name(&pool, &room_name)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
-    
+
     // パブリックルームには招待できない
     if room.is_public {
         return Ok(Json(InviteUserResponse {
@@ -509,39 +535,41 @@ async fn invite_user(
             message: "パブリックルームには招待は必要ありません".to_string(),
         }));
     }
-    
+
     // 現在のユーザーがルームのメンバーかチェック
-    let is_member = room.is_member(&pool, user_id)
+    let is_member = room
+        .is_member(&pool, user_id)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     if !is_member {
         return Err(axum::http::StatusCode::FORBIDDEN);
     }
-    
+
     // 招待対象ユーザーを検索
     let target_user = crate::models::User::find_by_username(&pool, &payload.username)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or_else(|| axum::http::StatusCode::NOT_FOUND)?;
-    
+
     // 既にメンバーかどうかチェック
-    let is_already_member = room.is_member(&pool, target_user.id)
+    let is_already_member = room
+        .is_member(&pool, target_user.id)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     if is_already_member {
         return Ok(Json(InviteUserResponse {
             success: false,
             message: format!("{}は既にメンバーです", payload.username),
         }));
     }
-    
+
     // ユーザーをルームに追加
     room.add_member(&pool, target_user.id)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(InviteUserResponse {
         success: true,
         message: format!("{}をルームに招待しました", payload.username),
@@ -567,14 +595,15 @@ async fn get_online_users(
     let ws_state = &state.1;
     // WebSocket状態から実際のオンラインユーザー情報を取得
     let online_users_info = crate::ws::get_online_users_info(&ws_state).await;
-    
+
     let online_users: Vec<OnlineUser> = online_users_info
         .into_iter()
         .map(|(user_id, username, rooms, connected_at)| {
             // std::time::Instant を chrono::DateTime<Utc> に変換
-            let connected_at_utc = chrono::Utc::now() - chrono::Duration::from_std(connected_at.elapsed())
-                .unwrap_or_else(|_| chrono::Duration::zero());
-            
+            let connected_at_utc = chrono::Utc::now()
+                - chrono::Duration::from_std(connected_at.elapsed())
+                    .unwrap_or_else(|_| chrono::Duration::zero());
+
             OnlineUser {
                 user_id: user_id.to_string(),
                 username,
@@ -583,9 +612,9 @@ async fn get_online_users(
             }
         })
         .collect();
-    
+
     let total_count = online_users.len();
-    
+
     Ok(Json(OnlineUsersResponse {
         users: online_users,
         total_count,

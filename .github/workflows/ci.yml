@@ -37,10 +37,10 @@ jobs:
           MEILI_MASTER_KEY: masterKey123
           MEILI_ENV: development
         options: >-
-          --health-cmd "curl -f http://localhost:7700/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd "/bin/sh -c 'exec 3<>/dev/tcp/127.0.0.1/7700 && echo -e \"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n\" >&3 && cat <&3'"
+          --health-interval 30s
+          --health-timeout 10s
+          --health-retries 10
         ports:
           - 7700:7700
 
@@ -71,6 +71,30 @@ jobs:
         echo "MEILI_URL=http://localhost:7700" >> $GITHUB_ENV
         echo "MEILI_MASTER_KEY=masterKey123" >> $GITHUB_ENV
 
+    - name: Wait for services
+      run: |
+        echo "Waiting for PostgreSQL..."
+        for i in {1..30}; do
+          if pg_isready -h localhost -p 5432 -U miuchichat; then
+            echo "PostgreSQL is ready!"
+            break
+          fi
+          echo "Attempt $i: PostgreSQL not ready yet..."
+          sleep 2
+        done
+        
+        echo "Waiting for Meilisearch..."
+        for i in {1..30}; do
+          if curl -f -s http://localhost:7700/health >/dev/null 2>&1; then
+            echo "Meilisearch is ready!"
+            break
+          fi
+          echo "Attempt $i: Meilisearch not ready yet..."
+          sleep 2
+        done
+        
+        echo "All services are ready!"
+
     - name: Run database migrations
       run: |
         sqlx database create
@@ -85,10 +109,26 @@ jobs:
     - name: Build project
       run: cargo build --verbose
 
-    - name: Run tests
-      run: cargo test --verbose
+    - name: Run unit tests
+      run: cargo test --lib --verbose
       env:
         DATABASE_URL: postgres://miuchichat:password123@localhost:5432/miuchichat
+        MEILI_URL: http://localhost:7700
+        MEILI_MASTER_KEY: masterKey123
+        
+    - name: Run integration tests
+      run: cargo test --test '*' --verbose
+      env:
+        DATABASE_URL: postgres://miuchichat:password123@localhost:5432/miuchichat
+        MEILI_URL: http://localhost:7700
+        MEILI_MASTER_KEY: masterKey123
+        
+    - name: Run all tests with services
+      run: cargo test --verbose --all
+      env:
+        DATABASE_URL: postgres://miuchichat:password123@localhost:5432/miuchichat
+        MEILI_URL: http://localhost:7700
+        MEILI_MASTER_KEY: masterKey123
 
     - name: Check for unused dependencies
       run: |

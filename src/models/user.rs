@@ -18,12 +18,12 @@ impl User {
     pub async fn find_by_github_id(pool: &PgPool, github_id: i64) -> anyhow::Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
             "SELECT id, github_id, username, email, avatar_url, created_at, updated_at 
-             FROM users WHERE github_id = $1"
+             FROM users WHERE github_id = $1",
         )
         .bind(github_id)
         .fetch_optional(pool)
         .await?;
-        
+
         Ok(user)
     }
 
@@ -45,7 +45,7 @@ impl User {
                 avatar_url = EXCLUDED.avatar_url,
                 updated_at = now()
             RETURNING id, github_id, username, email, avatar_url, created_at, updated_at
-            "#
+            "#,
         )
         .bind(github_id)
         .bind(username)
@@ -60,24 +60,24 @@ impl User {
     pub async fn find_by_id(pool: &PgPool, id: Uuid) -> anyhow::Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
             "SELECT id, github_id, username, email, avatar_url, created_at, updated_at 
-             FROM users WHERE id = $1"
+             FROM users WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(pool)
         .await?;
-        
+
         Ok(user)
     }
 
     pub async fn find_by_username(pool: &PgPool, username: &str) -> anyhow::Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
             "SELECT id, github_id, username, email, avatar_url, created_at, updated_at 
-             FROM users WHERE username = $1"
+             FROM users WHERE username = $1",
         )
         .bind(username)
         .fetch_optional(pool)
         .await?;
-        
+
         Ok(user)
     }
 }

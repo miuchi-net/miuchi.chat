@@ -33,24 +33,24 @@ impl Room {
     pub async fn find_by_name(pool: &PgPool, name: &str) -> anyhow::Result<Option<Room>> {
         let room = sqlx::query_as::<_, Room>(
             "SELECT id, name, description, created_by, is_public, created_at, updated_at 
-             FROM rooms WHERE name = $1"
+             FROM rooms WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(pool)
         .await?;
-        
+
         Ok(room)
     }
 
     pub async fn find_by_id(pool: &PgPool, id: Uuid) -> anyhow::Result<Option<Room>> {
         let room = sqlx::query_as::<_, Room>(
             "SELECT id, name, description, created_by, is_public, created_at, updated_at 
-             FROM rooms WHERE id = $1"
+             FROM rooms WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(pool)
         .await?;
-        
+
         Ok(room)
     }
 
@@ -66,7 +66,7 @@ impl Room {
             INSERT INTO rooms (name, description, created_by, is_public)
             VALUES ($1, $2, $3, $4)
             RETURNING id, name, description, created_by, is_public, created_at, updated_at
-            "#
+            "#,
         )
         .bind(name)
         .bind(description)
@@ -80,7 +80,7 @@ impl Room {
 
     pub async fn is_member(&self, pool: &PgPool, user_id: Uuid) -> anyhow::Result<bool> {
         let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)"
+            "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)",
         )
         .bind(self.id)
         .bind(user_id)
@@ -97,7 +97,7 @@ impl Room {
             VALUES ($1, $2)
             ON CONFLICT (room_id, user_id) DO NOTHING
             RETURNING id, room_id, user_id, joined_at
-            "#
+            "#,
         )
         .bind(self.id)
         .bind(user_id)
@@ -115,7 +115,7 @@ impl Room {
             JOIN users u ON rm.user_id = u.id
             WHERE rm.room_id = $1
             ORDER BY rm.joined_at ASC
-            "#
+            "#,
         )
         .bind(self.id)
         .fetch_all(pool)

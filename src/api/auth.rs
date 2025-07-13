@@ -5,14 +5,14 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use oauth2::{
-    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    RedirectUrl, Scope, TokenResponse as OAuth2TokenResponse, TokenUrl,
+    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl,
+    Scope, TokenResponse as OAuth2TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
-use base64::{Engine as _, engine::general_purpose};
 use sqlx::PgPool;
 use utoipa::ToSchema;
 
@@ -24,15 +24,15 @@ pub struct Claims {
     pub username: String,
     pub email: Option<String>,
     pub aud: String, // Audience
-    pub exp: usize, // Expiration time
-    pub iat: usize, // Issued at
+    pub exp: usize,  // Expiration time
+    pub iat: usize,  // Issued at
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StateClaims {
     pub nonce: String, // Random nonce
-    pub exp: usize, // Expiration time (5 minutes)
-    pub aud: String, // Audience
+    pub exp: usize,    // Expiration time (5 minutes)
+    pub aud: String,   // Audience
 }
 
 #[derive(Deserialize)]
@@ -82,7 +82,10 @@ pub struct AuthUser {
 impl FromRequestParts<PgPool> for AuthUser {
     type Rejection = StatusCode;
 
-    async fn from_request_parts(parts: &mut Parts, state: &PgPool) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &PgPool,
+    ) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
             .get("Authorization")
@@ -94,7 +97,7 @@ impl FromRequestParts<PgPool> for AuthUser {
         }
 
         let token = auth_header.trim_start_matches("Bearer ");
-        
+
         let secret = std::env::var("JWT_SECRET")
             .unwrap_or_else(|_| "development_secret_key_change_in_production".to_string());
 
@@ -109,9 +112,12 @@ impl FromRequestParts<PgPool> for AuthUser {
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
         // ユーザーIDをUUIDにパース
-        let user_id = token_data.claims.sub.parse::<uuid::Uuid>()
+        let user_id = token_data
+            .claims
+            .sub
+            .parse::<uuid::Uuid>()
             .map_err(|_| StatusCode::UNAUTHORIZED)?;
-        
+
         // DBからユーザー情報を取得して検証
         let user = User::find_by_id(state, user_id)
             .await
@@ -131,7 +137,10 @@ impl FromRequestParts<PgPool> for AuthUser {
 impl FromRequestParts<(PgPool, crate::ws::AppState)> for AuthUser {
     type Rejection = StatusCode;
 
-    async fn from_request_parts(parts: &mut Parts, state: &(PgPool, crate::ws::AppState)) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &(PgPool, crate::ws::AppState),
+    ) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
             .get("Authorization")
@@ -143,7 +152,7 @@ impl FromRequestParts<(PgPool, crate::ws::AppState)> for AuthUser {
         }
 
         let token = auth_header.trim_start_matches("Bearer ");
-        
+
         let secret = std::env::var("JWT_SECRET")
             .unwrap_or_else(|_| "development_secret_key_change_in_production".to_string());
 
@@ -158,9 +167,12 @@ impl FromRequestParts<(PgPool, crate::ws::AppState)> for AuthUser {
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
         // ユーザーIDをUUIDにパース
-        let user_id = token_data.claims.sub.parse::<uuid::Uuid>()
+        let user_id = token_data
+            .claims
+            .sub
+            .parse::<uuid::Uuid>()
             .map_err(|_| StatusCode::UNAUTHORIZED)?;
-        
+
         // DBからユーザー情報を取得して検証 (combined stateの最初の要素がPgPool)
         let user = User::find_by_id(&state.0, user_id)
             .await
@@ -185,17 +197,19 @@ pub fn router() -> Router<(PgPool, meilisearch_sdk::client::Client)> {
 }
 
 fn create_oauth_client() -> anyhow::Result<BasicClient> {
-    let client_id = std::env::var("GITHUB_CLIENT_ID_DEV")
-        .unwrap_or_else(|_| "dummy_client_id".to_string());
+    let client_id =
+        std::env::var("GITHUB_CLIENT_ID_DEV").unwrap_or_else(|_| "dummy_client_id".to_string());
     let client_secret = std::env::var("GITHUB_CLIENT_SECRET_DEV")
         .unwrap_or_else(|_| "dummy_client_secret".to_string());
-    
+
     let auth_url = AuthUrl::new("https://github.com/login/oauth/authorize".to_string())?;
     let token_url = TokenUrl::new("https://github.com/login/oauth/access_token".to_string())?;
-    
-    let redirect_url = RedirectUrl::new(format!("{}/api/auth/callback", 
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3001".to_string())))?;
-    
+
+    let redirect_url = RedirectUrl::new(format!(
+        "{}/api/auth/callback",
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3001".to_string())
+    ))?;
+
     Ok(BasicClient::new(
         ClientId::new(client_id),
         Some(ClientSecret::new(client_secret)),
@@ -208,10 +222,10 @@ fn create_oauth_client() -> anyhow::Result<BasicClient> {
 fn create_jwt_token(user: &GitHubUser) -> anyhow::Result<String> {
     let secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "development_secret_key_change_in_production".to_string());
-    
+
     let now = Utc::now();
     let exp = now + Duration::hours(24);
-    
+
     let claims = Claims {
         sub: user.id.to_string(),
         username: user.login.clone(),
@@ -220,23 +234,23 @@ fn create_jwt_token(user: &GitHubUser) -> anyhow::Result<String> {
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
     };
-    
+
     let token = encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(secret.as_ref()),
     )?;
-    
+
     Ok(token)
 }
 
 fn create_jwt_token_from_user(user: &User) -> anyhow::Result<String> {
     let secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "development_secret_key_change_in_production".to_string());
-    
+
     let now = Utc::now();
     let exp = now + Duration::hours(24);
-    
+
     let claims = Claims {
         sub: user.id.to_string(),
         username: user.username.clone(),
@@ -245,40 +259,38 @@ fn create_jwt_token_from_user(user: &User) -> anyhow::Result<String> {
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
     };
-    
+
     let token = encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(secret.as_ref()),
     )?;
-    
+
     Ok(token)
 }
 
 fn create_state_token() -> anyhow::Result<String> {
     let secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "development_secret_key_change_in_production".to_string());
-    
+
     let now = Utc::now();
     let exp = now + Duration::minutes(5); // 5分で期限切れ
-    
+
     // ランダムなnonceを生成
-    let nonce = general_purpose::URL_SAFE_NO_PAD.encode(
-        uuid::Uuid::new_v4().as_bytes()
-    );
-    
+    let nonce = general_purpose::URL_SAFE_NO_PAD.encode(uuid::Uuid::new_v4().as_bytes());
+
     let claims = StateClaims {
         nonce,
         exp: exp.timestamp() as usize,
         aud: "miuchi.chat.oauth".to_string(),
     };
-    
+
     let token = encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(secret.as_ref()),
     )?;
-    
+
     Ok(token)
 }
 
@@ -310,18 +322,17 @@ async fn login_url(
     State((_pool, _meili_client)): State<(PgPool, meilisearch_sdk::client::Client)>,
 ) -> Result<Json<LoginUrlResponse>, StatusCode> {
     let client = create_oauth_client().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     // JWT署名付きstateトークンを生成
-    let state_token = create_state_token()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+    let state_token = create_state_token().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let csrf_token = CsrfToken::new(state_token.clone());
-    
+
     let (auth_url, _) = client
         .authorize_url(|| csrf_token)
         .add_scope(Scope::new("user:email".to_string()))
         .url();
-    
+
     Ok(Json(LoginUrlResponse {
         login_url: auth_url.to_string(),
         state: state_token,
@@ -348,24 +359,27 @@ async fn callback(
 ) -> Result<Redirect, StatusCode> {
     // JWT署名付きstateトークンを検証
     tracing::info!("Callback received with state: {}", params.state);
-    
+
     match verify_state_token(&params.state) {
         Ok(state_claims) => {
-            tracing::info!("Valid state token verified with nonce: {}", state_claims.nonce);
+            tracing::info!(
+                "Valid state token verified with nonce: {}",
+                state_claims.nonce
+            );
         }
         Err(e) => {
             tracing::warn!("Invalid state token: {}", e);
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     let client = create_oauth_client().map_err(|e| {
         tracing::error!("Failed to create OAuth client: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     tracing::info!("Exchanging code for token...");
-    
+
     // GitHubからアクセストークンを取得
     let token_result = client
         .exchange_code(AuthorizationCode::new(params.code.clone()))
@@ -375,9 +389,9 @@ async fn callback(
             tracing::error!("Failed to exchange code for token: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    
+
     tracing::info!("Successfully received access token");
-    
+
     // GitHubユーザー情報を取得
     tracing::info!("Fetching user info from GitHub API...");
     let http_client = reqwest::Client::new();
@@ -391,23 +405,23 @@ async fn callback(
             tracing::error!("Failed to fetch user info from GitHub: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    
+
     if !user_response.status().is_success() {
-        tracing::error!("GitHub API returned error: {} - {}", user_response.status(), 
-            user_response.text().await.unwrap_or_default());
+        tracing::error!(
+            "GitHub API returned error: {} - {}",
+            user_response.status(),
+            user_response.text().await.unwrap_or_default()
+        );
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    
-    let github_user: GitHubUser = user_response
-        .json()
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to parse GitHub user response: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    
+
+    let github_user: GitHubUser = user_response.json().await.map_err(|e| {
+        tracing::error!("Failed to parse GitHub user response: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     tracing::info!("Successfully fetched user info for: {}", github_user.login);
-    
+
     // ユーザーをDBに保存またはアップデート
     tracing::info!("Saving user to database...");
     let user = User::create_or_update_from_github(
@@ -422,26 +436,25 @@ async fn callback(
         tracing::error!("Failed to save user to database: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     tracing::info!("Successfully saved user to database");
-    
+
     // JWTトークンを生成
     tracing::info!("Generating JWT token...");
-    let jwt_token = create_jwt_token_from_user(&user)
-        .map_err(|e| {
-            tracing::error!("Failed to generate JWT token: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    
+    let jwt_token = create_jwt_token_from_user(&user).map_err(|e| {
+        tracing::error!("Failed to generate JWT token: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     tracing::info!("Successfully generated JWT token");
-    
+
     // フロントエンドのコールバックページにリダイレクトして、トークンをクエリパラメータで渡す
-    let frontend_url = std::env::var("FRONTEND_URL")
-        .unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let frontend_url =
+        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
     let redirect_url = format!("{}/callback?token={}", frontend_url, jwt_token);
-    
+
     tracing::info!("Redirecting to frontend: {}", redirect_url);
-    
+
     Ok(Redirect::to(&redirect_url))
 }
 
@@ -453,21 +466,23 @@ async fn callback(
     ),
     tag = "Authentication"
 )]
-async fn dev_login(State((pool, _meili_client)): State<(PgPool, meilisearch_sdk::client::Client)>) -> Result<Json<TokenResponse>, StatusCode> {
+async fn dev_login(
+    State((pool, _meili_client)): State<(PgPool, meilisearch_sdk::client::Client)>,
+) -> Result<Json<TokenResponse>, StatusCode> {
     // 開発環境でのみ有効
     if std::env::var("DEV_MODE").unwrap_or_else(|_| "false".to_string()) != "true" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // 開発用ユーザーをDBから取得
     let user = User::find_by_github_id(&pool, 999999)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let jwt_token = create_jwt_token_from_user(&user)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
+    let jwt_token =
+        create_jwt_token_from_user(&user).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(Json(TokenResponse {
         access_token: jwt_token,
         token_type: "Bearer".to_string(),
@@ -487,7 +502,10 @@ async fn dev_login(State((pool, _meili_client)): State<(PgPool, meilisearch_sdk:
         ("bearer_auth" = [])
     )
 )]
-async fn me(State((_pool, _meili_client)): State<(PgPool, meilisearch_sdk::client::Client)>, user: AuthUser) -> Json<UserResponse> {
+async fn me(
+    State((_pool, _meili_client)): State<(PgPool, meilisearch_sdk::client::Client)>,
+    user: AuthUser,
+) -> Json<UserResponse> {
     Json(UserResponse {
         id: user.user_id,
         username: user.username,
@@ -516,7 +534,10 @@ fn verify_jwt(token: &str) -> Result<Claims, StatusCode> {
 impl FromRequestParts<(PgPool, meilisearch_sdk::client::Client)> for AuthUser {
     type Rejection = StatusCode;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &(PgPool, meilisearch_sdk::client::Client)) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &(PgPool, meilisearch_sdk::client::Client),
+    ) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
             .get("Authorization")
@@ -528,9 +549,9 @@ impl FromRequestParts<(PgPool, meilisearch_sdk::client::Client)> for AuthUser {
         }
 
         let token = &auth_header[7..];
-        
+
         let claims = verify_jwt(token)?;
-        
+
         Ok(AuthUser {
             user_id: claims.sub,
             username: claims.username,
@@ -543,7 +564,10 @@ impl FromRequestParts<(PgPool, meilisearch_sdk::client::Client)> for AuthUser {
 impl FromRequestParts<(PgPool, crate::ws::AppState, meilisearch_sdk::client::Client)> for AuthUser {
     type Rejection = StatusCode;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &(PgPool, crate::ws::AppState, meilisearch_sdk::client::Client)) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &(PgPool, crate::ws::AppState, meilisearch_sdk::client::Client),
+    ) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
             .get("Authorization")
@@ -555,9 +579,9 @@ impl FromRequestParts<(PgPool, crate::ws::AppState, meilisearch_sdk::client::Cli
         }
 
         let token = &auth_header[7..];
-        
+
         let claims = verify_jwt(token)?;
-        
+
         Ok(AuthUser {
             user_id: claims.sub,
             username: claims.username,
